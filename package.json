@@ -1,32 +1,76 @@
 {
   "name": "@lynx-js/go-web",
-  "version": "0.1.0",
-  "description": "Interactive Go component for Lynx documentation sites",
-  "type": "module",
-  "scripts": {
-    "dev": "cd example && pnpm install && pnpm dev",
-    "typecheck": "tsc --noEmit"
-  },
-  "main": "src/index.ts",
-  "types": "src/index.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./adapters/rspress": "./src/adapters/rspress.tsx",
-    "./ssg": "./src/ssg.tsx"
-  },
-  "files": [
-    "src"
+  "version": "0.6.0",
+  "description": "Interactive <Go> component for embedding live Lynx examples on the web. The example/ website doubles as the community example gallery.",
+  "keywords": [
+    "lynx",
+    "lynxjs",
+    "go-web",
+    "go",
+    "react",
+    "component",
+    "embed",
+    "gallery",
+    "ssg",
+    "rspress",
+    "qr-code",
+    "live-preview"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/lynx-community/go-web.git"
+    "url": "git+https://github.com/lynx-community/go-web.git"
   },
   "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapters/rspress": "./src/adapters/rspress.tsx",
+    "./ssg": "./src/ssg.tsx",
+    "./embed": "./src/embed.ts"
+  },
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": [
+    "src",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "dev": "cd example && pnpm install && pnpm dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky",
+    "typecheck": "tsc --noEmit"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,md,mdx,json,yml,yaml,css,scss}": "prettier --write"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.30.0",
+    "@douyinfe/semi-icons": "^2.74.0",
+    "@douyinfe/semi-ui": "^2.75.0",
+    "@lynx-js/web-core": "^0.20.3",
+    "@shikijs/transformers": "^3.4.2",
+    "@svitejs/changesets-changelog-github-compact": "^1.2.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-copy-to-clipboard": "^5.0.7",
+    "@types/react-dom": "^18.2.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.3",
+    "prettier-plugin-packagejson": "^3.0.2",
+    "qrcode.react": "^4.2.0",
+    "react": "^18.2.0",
+    "react-copy-to-clipboard": "^5.1.0",
+    "react-dom": "^18.2.0",
+    "swr": "^2.2.5",
+    "typescript": "^5.7.0",
+    "vscode-icons-js": "^11.6.1"
+  },
   "peerDependencies": {
     "@douyinfe/semi-icons": ">=2.74.0",
     "@douyinfe/semi-ui": ">=2.75.0",
-    "@lynx-js/web-core": "*",
-    "@lynx-js/web-elements": "*",
+    "@lynx-js/web-core": ">=0.20.0",
     "@shikijs/transformers": ">=3.0.0",
     "qrcode.react": ">=4.0.0",
     "react": ">=18.0.0",
@@ -40,21 +84,11 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "@types/react-copy-to-clipboard": "^5.0.7",
-    "typescript": "^5.7.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "@douyinfe/semi-icons": "^2.74.0",
-    "@douyinfe/semi-ui": "^2.75.0",
-    "@lynx-js/web-core": "npm:@lynx-js/web-core-canary@0.19.7-canary-20260126-5e7e43c5",
-    "@lynx-js/web-elements": "^0.11.0",
-    "@shikijs/transformers": "^3.4.2",
-    "qrcode.react": "^4.2.0",
-    "react-copy-to-clipboard": "^5.1.0",
-    "swr": "^2.2.5",
-    "vscode-icons-js": "^11.6.1"
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
+  "engines": {
+    "node": "^22 || ^24"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

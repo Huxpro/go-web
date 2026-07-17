@@ -1,6 +1,8 @@
-# go-web
+# Lynx Go Web
 
-Interactive Go component for Lynx documentation sites. Renders live Lynx examples with code browsing, web preview, and QR code for on-device testing.
+The `<Go>` component for embedding live Lynx examples on the web — with code browsing, web preview, and QR code for on-device testing. Initially built for [lynxjs.org](https://lynxjs.org), now extracted for everyone to embed their Lynx apps.
+
+The **[&lt;Go&gt; with Examples](https://go.lynxjs.org)** gallery showcases examples from [`@lynx-example`](https://www.npmjs.com/search?q=%40lynx-example), [`@vue-lynx-example`](https://www.npmjs.com/search?q=%40vue-lynx-example), and more.
 
 ## Usage
 
@@ -13,7 +15,7 @@ const config = {
 
 <GoConfigProvider config={config}>
   <Go example="hello-world" defaultFile="src/App.tsx" />
-</GoConfigProvider>
+</GoConfigProvider>;
 ```
 
 ### With rspress
@@ -29,7 +31,7 @@ const config = {
 
 <GoConfigProvider config={config}>
   <Go example="hello-world" />
-</GoConfigProvider>
+</GoConfigProvider>;
 ```
 
 ### SSG (Static Site Generation)
@@ -55,7 +57,7 @@ const config = {
 
 <GoConfigProvider config={config}>
   <Go example="hello-world" defaultFile="src/App.tsx" />
-</GoConfigProvider>
+</GoConfigProvider>;
 ```
 
 #### Option B: Pure function (build-time injection)
@@ -76,13 +78,111 @@ const html = generateSSGHTML({
 
 The `./ssg` export uses Node.js `fs`/`path` and must not be bundled into browser code.
 
+### Iframe Embed (no React required)
+
+For non-React sites (Hugo, Jekyll, plain HTML, etc.), use the iframe embed API. The host page only loads a tiny JS file — React runs inside the iframe.
+
+```html
+<div id="demo" style="height: 500px;"></div>
+<script type="module">
+  import { mount } from 'https://go.lynxjs.org/embed.js';
+
+  const embed = mount('#demo', {
+    example: 'hello-world',
+    defaultFile: 'src/App.tsx',
+  });
+
+  // Switch example dynamically:
+  // embed.update({ example: 'css' });
+
+  // Clean up:
+  // embed.destroy();
+</script>
+```
+
+Options:
+
+| Option             | Type                                | Description                                                                                                                                                                                                                    |
+| ------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `example`          | `string`                            | **Required.** Example folder name, e.g. `'hello-world'`                                                                                                                                                                        |
+| `defaultFile`      | `string`                            | Initial file to display (default: `'src/App.tsx'`)                                                                                                                                                                             |
+| `mode`             | `'linked' \| 'preview' \| 'source'` | Overall layout mode (default: `'linked'`). `'linked'` shows code + preview together; `'preview'` shows preview only; `'source'` shows code only.                                                                               |
+| `defaultTab`       | `'preview' \| 'web' \| 'qrcode'`    | Default preview tab                                                                                                                                                                                                            |
+| `exampleBasePath`  | `string`                            | Base path or full URL for example data, e.g. `'/lynx-examples'`                                                                                                                                                                |
+| `deepLinkUrl`      | `string`                            | Deep link URL template for opening the app locally. Supports `{{{url}}}` (raw) and `{{{urlEncoded}}}` (encoded) placeholders.                                                                                                  |
+| `nativeFramework`  | `string`                            | Native framework the bundle requires at runtime, e.g. `'lynxtron'` (desktop) or `'sparkling'` (mobile). Unset = universal (runs anywhere: QR + deep link). Drives whether the QR tab and/or a deep link is shown per platform. |
+| `img`              | `string`                            | Static preview image URL                                                                                                                                                                                                       |
+| `defaultEntryFile` | `string`                            | Default entry bundle file path (relative to the example folder), e.g. `'dist/main.lynx.bundle'`. Must match `example-metadata.json` (`templateFiles[].file`). Prefix match is supported (e.g. `'dist/main'`).                  |
+| `defaultEntryName` | `string`                            | Default entry name (from `templateFiles[].name`), e.g. `'main'`. Convenience alternative to `defaultEntryFile` and only used when `defaultEntryFile` is not provided.                                                          |
+| `highlight`        | `string \| Record<string, string>`  | Line highlight spec, e.g. `'{1,3-5}'`. When passing a map, the key is the file path and the value is that file's highlight spec.                                                                                               |
+| `entry`            | `string \| string[]`                | Filter entry files in tree, useful for example with multiple entries, e.g. `'src/basic'`                                                                                                                                       |
+| `schema`           | `string`                            | URL schema template for Lynx Explorer QR code. Use `{{{url}}}` as placeholder for the resolved entry URL, e.g. `{{{url}}}?bar_color=000000&back_button_style=dark`                                                             |
+
+#### Viewport Mode (Web Preview)
+
+These options control how `lynx-view` renders inside the web preview panel.
+
+Web preview bundle resolution is driven by `example-metadata.json` (`templateFiles[].webFile`) for the selected entry; it is not inferred from the Lynx bundle filename automatically.
+
+| Option              | Type                              | Default        | Description                                                                                                     |
+| ------------------- | --------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `webPreview`        | `boolean`                         | `true`         | Enable/disable the web preview tab even if `templateFiles[].webFile` exists                                     |
+| `webPreviewMode`    | `'fit' \| 'responsive' \| 'auto'` | `'responsive'` | Viewport rendering mode                                                                                         |
+| `designWidth`       | `number`                          | `375`          | Design canvas width in pixels. Used in `fit` mode.                                                              |
+| `designHeight`      | `number`                          | `812`          | Design canvas height in pixels. Used in `fit` mode.                                                             |
+| `fitThresholdScale` | `number`                          | `1.0`          | Width enter threshold for `webPreviewMode='auto'`. Exit back to `responsive` uses a built-in hysteresis band.   |
+| `fitMinScale`       | `number`                          | `0.5`          | Height enter threshold for `webPreviewMode='auto'`. Exit back to `responsive` uses a built-in hysteresis band.  |
+| `fit`               | `'contain' \| 'cover' \| 'auto'`  | `'cover'`      | Fit strategy inside the fit path. `auto` uses built-in heuristics, including hysteresis-aware mode transitions. |
+
+Mode behavior:
+
+| Mode           | Behavior                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'responsive'` | `lynx-view` fills the container. `browserConfig` uses measured container dimensions.                                                                                       |
+| `'fit'`        | `lynx-view` is fixed at `designWidth × designHeight`. CSS `transform: scale` fits it into the container. `browserConfig` uses design dimensions.                           |
+| `'auto'`       | Switches based on container size. Behaves like `fit` for small/narrow containers and `responsive` for wide ones, with a built-in hysteresis band to reduce resize flicker. |
+
+Auto switching logic:
+
+```ts
+const ratioW = containerWidth / designWidth;
+const ratioH = containerHeight / designHeight;
+
+// Enter condition only:
+// - containerWidth < designWidth * fitThresholdScale
+// - containerHeight < designHeight * fitMinScale
+const shouldUseFit = ratioW < fitThresholdScale || ratioH < fitMinScale;
+```
+
+Exit back to `responsive` uses slightly larger internal thresholds, so `auto`
+does not switch back and forth on every tiny resize near the boundary.
+
+Transition behavior:
+
+- `fit → fit` on container resize: smooth `transform` transition
+- `fit ↔ responsive` mode switch: hard cut, no transition
+
 ## Development
 
 ```bash
 pnpm dev
 ```
 
-This starts the standalone example app at `localhost:3000`.
+This starts the standalone example app at `localhost:5969`.
+
+### Lynx examples
+
+The `@lynx-example/*` packages are fetched directly from the npm registry at build time — no need to declare them as dependencies. The `prepare` script handles discovery, download, and metadata generation automatically.
+
+```bash
+# Local dev: uses cached examples if available (instant)
+pnpm prepare
+
+# Force re-fetch latest from npm registry
+pnpm prepare:clean
+```
+
+CI always runs `prepare:clean` to ensure that examples are up to date.
 
 ## CI
 

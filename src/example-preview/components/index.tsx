@@ -1,39 +1,42 @@
-import React, {
-  FC,
-  Suspense,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { IconChevronRightStroked, IconList } from '@douyinfe/semi-icons';
 import {
-  Space,
-  Typography,
-  Switch,
   Button,
-  SideSheet,
-  RadioGroup,
   Radio,
+  RadioGroup,
   Select,
-  Toast,
-  Tabs,
+  SideSheet,
+  Space,
+  Switch,
   TabPane,
+  Tabs,
+  Toast,
+  Typography,
 } from '@douyinfe/semi-ui';
-import { IconList, IconChevronRightStroked } from '@douyinfe/semi-icons';
 import { QRCodeSVG } from 'qrcode.react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
-import { FileTree } from './file-tree';
 import { CodeView } from './code-view';
-import { SwitchSchema } from './switch-schema';
+import { FileTree } from './file-tree';
+import { DeepLinkRow, FloatingDeepLink, OpenInHint } from './open-in-panel';
 import { PreviewImg } from './preview-img';
-import { ResizableContainer } from './resizable';
+import { SplitPane, type SplitPaneHandle } from './split-pane';
+import { SwitchSchema } from './switch-schema';
 
-import { IconGithub, IconCopyLink } from '../utils/icon';
-import { tabScrollToTop } from '../utils/tool';
-import { useTreeController } from '../hooks/use-tree-controller';
-import type { SchemaOptionsData } from '../hooks/use-switch-schema';
-import { useGoConfig, DEFAULT_I18N, DefaultNoSSR } from '../../config';
 import type { PreviewTab } from '../../config';
+import { DEFAULT_I18N, DefaultNoSSR, useGoConfig } from '../../config';
+import { useIsMobile } from '../hooks/use-is-mobile';
+import type { SchemaOptionsData } from '../hooks/use-switch-schema';
+import { useTreeController } from '../hooks/use-tree-controller';
+import {
+  IconCopyLink,
+  IconExitFullscreen,
+  IconFullscreen,
+  IconGithub,
+} from '../utils/icon';
+import { getFrameworkConfig } from '../utils/native-frameworks';
+import { isQrAllowed, resolveOpenIn } from '../utils/open-in-mode';
+import type { WebPreviewMode } from '../utils/resolve-web-preview';
+import { tabScrollToTop } from '../utils/tool';
 
 const WebIframe = React.lazy(() =>
   import('./web-iframe').then((module) => ({ default: module.WebIframe })),
@@ -52,6 +55,8 @@ enum PreviewType {
   QRCode = 'QRCode',
   Web = 'Web',
 }
+
+import type { ExamplePreviewMode } from '../index';
 
 interface ExampleContentProps {
   fileNames: string[];
@@ -75,9 +80,21 @@ interface ExampleContentProps {
   exampleGitBaseUrl?: string;
   langAlias?: Record<string, string>;
   defaultTab?: PreviewTab;
+  mode?: ExamplePreviewMode;
+  webPreviewMode?: WebPreviewMode;
+  designWidth?: number;
+  designHeight?: number;
+  fitThresholdScale?: number;
+  fitMinScale?: number;
+  fit?: 'contain' | 'cover' | 'auto';
+  deepLinkUrl?: string;
+  /** Native framework required by this bundle at runtime (e.g. `"lynxtron"`). */
+  nativeFramework?: string;
+  /** @internal Force mobile mode for testing in the standalone example. */
+  _forceMobile?: boolean;
 }
 
-export const ExampleContent: FC<ExampleContentProps> = ({
+export function ExampleContent({
   fileNames,
   previewImage,
   currentFileName,
@@ -99,7 +116,17 @@ export const ExampleContent: FC<ExampleContentProps> = ({
   exampleGitBaseUrl,
   langAlias,
   defaultTab,
-}) => {
+  mode = 'linked',
+  webPreviewMode = 'responsive',
+  designWidth = 375,
+  designHeight = 812,
+  fitThresholdScale = 1.0,
+  fitMinScale = 0.5,
+  fit = 'cover',
+  deepLinkUrl,
+  nativeFramework,
+  _forceMobile,
+}: ExampleContentProps) {
   const {
     explorerUrl,
     explorerText,
@@ -114,10 +141,12 @@ export const ExampleContent: FC<ExampleContentProps> = ({
 
   const { treeData, doChangeExpand, selectedKeys, expandedKeys, entryData } =
     useTreeController({ fileNames, value: currentFileName, entry });
-  const [showPreview, setShowPreview] = useState(true);
+  const [showPreview, setShowPreview] = useState(mode !== 'source');
+  const [showCode, setShowCode] = useState(mode !== 'preview');
   const [showFileTree, setShowFileTree] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const splitPaneRef = useRef<SplitPaneHandle>(null);
   const [isVertical, setIsVertical] = useState(false);
 
   useEffect(() => {
@@ -157,9 +186,31 @@ export const ExampleContent: FC<ExampleContentProps> = ({
     };
   }, [previewImage, currentEntry, defaultWebPreviewFile]);
   const [tmpCurrentFileName, setTmpCurrentFileName] = useState('');
+  const [fullscreenMode, setFullscreenMode] = useState<'off' | 'all'>('off');
   const defaultI18n = (key: string) => DEFAULT_I18N[key] || key;
   const t = useI18nHook ? useI18nHook() : defaultI18n;
   const lang = useLangHook ? useLangHook() : 'en';
+
+  // Lock body scroll and handle Escape key in fullscreen
+  useEffect(() => {
+    if (fullscreenMode === 'off') return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setFullscreenMode('off');
+        setShowCode(true);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [fullscreenMode]);
 
   const getContainer = () => containerRef.current as HTMLDivElement;
   const onFileSelect = (v: string) => {
@@ -173,190 +224,400 @@ export const ExampleContent: FC<ExampleContentProps> = ({
   const onSwitchSchema = (schema: string) => {
     setQrcodeUrlWithSchema(schema);
   };
-  const qrcodeUrl = qrcodeUrlWithSchema || currentEntryFileUrl;
+  // Deep-link template: an explicit `deepLinkUrl` prop overrides the framework's
+  // default scheme (e.g. lynxtron → lynxtron-go://…). Universal bundles have no
+  // default, so they only offer a deep link when one is passed explicitly.
+  const frameworkConfig = getFrameworkConfig(nativeFramework);
+  const deepLinkTemplate = deepLinkUrl || frameworkConfig?.deepLinkScheme || '';
+
+  const resolvedDeepLinkUrl = useMemo(() => {
+    if (!deepLinkTemplate) return '';
+    const url = deepLinkTemplate
+      .split('{{{urlEncoded}}}')
+      .join(encodeURIComponent(currentEntryFileUrl))
+      .split('{{{url}}}')
+      .join(currentEntryFileUrl);
+    // Drop dangerous schemes so a config-supplied deep link can't execute
+    // in-page when clicked (e.g. `javascript:` / `data:` / `vbscript:`).
+    if (/^\s*(javascript|data|vbscript):/i.test(url)) return '';
+    return url;
+  }, [deepLinkTemplate, currentEntryFileUrl]);
+  const canOpenDeepLink = useMemo(() => {
+    if (!deepLinkTemplate) return false;
+    const needsUrl =
+      deepLinkTemplate.includes('{{{url}}}') ||
+      deepLinkTemplate.includes('{{{urlEncoded}}}');
+    return needsUrl ? Boolean(currentEntryFileUrl) : true;
+  }, [deepLinkTemplate, currentEntryFileUrl]);
+
+  // The QR encodes the entry URL for universal bundles (Lynx Explorer picks it
+  // up), or the resolved deep link for a framework (scanning opens that app).
+  const qrcodeUrl = nativeFramework
+    ? resolvedDeepLinkUrl
+    : qrcodeUrlWithSchema || currentEntryFileUrl;
+
+  const isMobileUA = useIsMobile();
+  const isMobile = _forceMobile ?? isMobileUA;
+
+  // `qrAllowed` is synchronous (depends only on `nativeFramework`), so a
+  // universal bundle never transiently loses its QR tab before the entry loads.
+  const qrAllowed = isQrAllowed(nativeFramework);
+  const plan = useMemo(
+    () =>
+      resolveOpenIn({
+        nativeFramework,
+        isMobile,
+        hasDeepLink: Boolean(deepLinkTemplate),
+        hasEntry: Boolean(currentEntry),
+      }),
+    [nativeFramework, isMobile, deepLinkTemplate, currentEntry],
+  );
+
+  // Redirect away from the QR tab when the framework never offers one (a
+  // desktop framework like Lynxtron). Gated on the synchronous `qrAllowed`, not
+  // the async entry state, so a universal bundle keeps its QR tab while loading.
+  useEffect(() => {
+    if (previewType === PreviewType.QRCode && !qrAllowed) {
+      setPreviewType(
+        previewImage
+          ? PreviewType.Preview
+          : hasWebPreview
+            ? PreviewType.Web
+            : PreviewType.Preview,
+      );
+    }
+  }, [qrAllowed]);
+
+  // Non-QR "open" surface for desktop frameworks: the floating deep link
+  // (desktop) or the "open on desktop" hint (mobile).
+  const renderOpenIn = () => {
+    if (qrAllowed) return null;
+    if (plan.showDeepLink) {
+      return (
+        <FloatingDeepLink
+          resolvedDeepLinkUrl={resolvedDeepLinkUrl}
+          canOpenDeepLink={canOpenDeepLink}
+          nativeFramework={nativeFramework}
+          t={t}
+        />
+      );
+    }
+    if (plan.hintPlatform) {
+      return (
+        <OpenInHint
+          nativeFramework={nativeFramework}
+          platform={plan.hintPlatform}
+          t={t}
+        />
+      );
+    }
+    return null;
+  };
 
   const showCodeTab = entryData && entryData?.length > 1;
-  return (
-    <div className={s.box} ref={boxRef}>
-      <div className={s.container} ref={containerRef}>
-        <div className={s.content}>
-          <div className={s['code-wrap']}>
-            <div className={s['code-tab-container']}>
-              {showCodeTab && (
-                <div
-                  className={s['code-tab']}
-                  ref={(tabsRef) => {
-                    // scroll to active tab
-                    tabScrollToTop(tabsRef);
-                  }}
-                >
-                  <Tabs
-                    activeKey={currentFileName}
-                    onChange={(v) => updateCurrentName(v)}
-                    size="small"
-                    preventScroll={true}
-                    onTabClose={() => {
-                      updateCurrentName(entryData[entryData.length - 1].value);
-                      setTmpCurrentFileName('');
-                    }}
-                  >
-                    {entryData.map((file) => (
-                      <TabPane
-                        key={file.value}
-                        itemKey={file.value}
-                        tab={file.label}
-                      />
-                    ))}
-                    {tmpCurrentFileName && (
-                      <TabPane
-                        key={tmpCurrentFileName}
-                        itemKey={tmpCurrentFileName}
-                        tab={tmpCurrentFileName?.split('/').pop()}
-                        closable={true}
-                      />
-                    )}
-                  </Tabs>
-                </div>
-              )}
-              <div
-                className={`${s['code-view-container']} ${showCodeTab ? s['code-view-container-tab-show'] : ''}`}
-              >
-                <CodeView
-                  currentFileName={currentFileName}
-                  currentFile={currentFile}
-                  isAssetFile={isAssetFile}
-                  highlight={highlight}
-                  langAlias={langAlias}
+
+  const renderCodeWrap = () => (
+    <div className={s['code-wrap']}>
+      <div className={s['code-tab-container']}>
+        {showCodeTab && (
+          <div
+            className={s['code-tab']}
+            ref={(tabsRef) => {
+              tabScrollToTop(tabsRef);
+            }}
+          >
+            <Tabs
+              activeKey={currentFileName}
+              onChange={(v) => updateCurrentName(v)}
+              size="small"
+              preventScroll={true}
+              onTabClose={() => {
+                updateCurrentName(entryData[entryData.length - 1].value);
+                setTmpCurrentFileName('');
+              }}
+            >
+              {entryData.map((file) => (
+                <TabPane
+                  key={file.value}
+                  itemKey={file.value}
+                  tab={file.label}
                 />
-              </div>
-            </div>
+              ))}
+              {tmpCurrentFileName && (
+                <TabPane
+                  key={tmpCurrentFileName}
+                  itemKey={tmpCurrentFileName}
+                  tab={tmpCurrentFileName?.split('/').pop()}
+                  closable={true}
+                />
+              )}
+            </Tabs>
           </div>
+        )}
+        <div
+          className={`${s['code-view-container']} ${showCodeTab ? s['code-view-container-tab-show'] : ''}`}
+        >
+          <CodeView
+            currentFileName={currentFileName}
+            currentFile={currentFile}
+            isAssetFile={isAssetFile}
+            highlight={highlight}
+            langAlias={langAlias}
+          />
+        </div>
+      </div>
+      {(mode === 'source' || !hasPreview || !showPreview) && renderOpenIn()}
+    </div>
+  );
 
-          <ResizableContainer show={hasPreview && showPreview} vertical={isVertical}>
-            <div className={s['preview-wrap']}>
-              <div className={s['preview-wrap-content']}>
-                <RadioGroup
-                  onChange={(e) => setPreviewType(e.target.value)}
-                  value={previewType}
-                  type="button"
-                  style={{
-                    display: 'flex',
-                    width: '100%',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {initState ? (
-                    <>
-                      {previewImage && (
-                        <Radio value={PreviewType.Preview}>
-                          {t('go.preview')}
-                        </Radio>
-                      )}
-                      {hasWebPreview && (
-                        <Radio value={PreviewType.Web}>Web</Radio>
-                      )}
-                      {currentEntry && (
-                        <Radio value={PreviewType.QRCode}>
-                          {t('go.qrcode')}
-                        </Radio>
-                      )}
-                    </>
-                  ) : (
-                    <div style={{ width: '100%', height: '32px' }}></div>
+  const previewOptionCount = useMemo(
+    () =>
+      [
+        Boolean(previewImage),
+        Boolean(hasWebPreview),
+        Boolean(currentEntry) && qrAllowed,
+      ].filter(Boolean).length,
+    [previewImage, hasWebPreview, currentEntry, qrAllowed],
+  );
+
+  const renderPreviewWrap = () => (
+    <div className={s['preview-wrap']}>
+      <div className={s['preview-wrap-content']}>
+        <div className={s['preview-header']}>
+          <div style={{ width: 24, flexShrink: 0 }} />
+          {/* Show the tab switcher when there's at least one preview option.
+              A single option still renders it so the active tab stays
+              selectable (e.g. a web-only example whose previewType would
+              otherwise not match any visible panel). */}
+          {previewOptionCount >= 1 ? (
+            <RadioGroup
+              onChange={(e) => setPreviewType(e.target.value)}
+              value={previewType}
+              type="button"
+              style={{
+                display: 'flex',
+                flex: 1,
+                minWidth: 0,
+                justifyContent: 'center',
+              }}
+            >
+              {initState ? (
+                <>
+                  {previewImage && (
+                    <Radio value={PreviewType.Preview}>{t('go.preview')}</Radio>
                   )}
-                </RadioGroup>
-
-                {previewType === PreviewType.QRCode && currentEntry && (
-                  <div className={s.qrcode}>
+                  {hasWebPreview && <Radio value={PreviewType.Web}>Web</Radio>}
+                  {currentEntry && qrAllowed && (
+                    <Radio value={PreviewType.QRCode}>{t('go.qrcode')}</Radio>
+                  )}
+                </>
+              ) : (
+                <div style={{ width: '100%', height: '32px' }}></div>
+              )}
+            </RadioGroup>
+          ) : (
+            <div style={{ flex: 1 }} />
+          )}
+          <Button
+            theme="borderless"
+            icon={
+              fullscreenMode !== 'off' && !showCode ? (
+                <IconExitFullscreen
+                  style={{ color: 'var(--semi-color-text-2)' }}
+                />
+              ) : (
+                <IconFullscreen style={{ color: 'var(--semi-color-text-2)' }} />
+              )
+            }
+            type="tertiary"
+            size="small"
+            onClick={() => {
+              if (fullscreenMode !== 'off' && !showCode) {
+                setFullscreenMode('off');
+                setShowCode(true);
+              } else if (fullscreenMode !== 'off' && showCode) {
+                setShowCode(false);
+              } else {
+                splitPaneRef.current?.ensureSecondMinSize(320);
+                setFullscreenMode('all');
+                setShowCode(false);
+              }
+            }}
+          />
+        </div>
+        <div className={s['preview-body']}>
+          {previewType === PreviewType.QRCode && currentEntry && qrAllowed && (
+            <div className={s['preview-panel']}>
+              <div className={s.qrcode}>
+                {/* Lynx-Explorer scan hint is universal-only; a framework QR
+                      opens that framework's own app when scanned. */}
+                {!nativeFramework && (
+                  <Typography.Text
+                    size="small"
+                    type="tertiary"
+                    style={{ margin: '28px 12px', textAlign: 'center' }}
+                  >
+                    {t('go.scan.message-1')}
                     <Typography.Text
+                      link={{
+                        href: withBaseFn(
+                          lang === 'zh'
+                            ? LYNX_EXPLORER_URL_CN
+                            : LYNX_EXPLORER_URL_EN,
+                        ),
+                        target: '_blank',
+                      }}
                       size="small"
-                      type="tertiary"
-                      style={{ margin: '28px 12px', textAlign: 'center' }}
+                      underline
                     >
-                      {t('go.scan.message-1')}
-                      <Typography.Text
-                        link={{
-                          href: withBaseFn(
-                            lang === 'zh'
-                              ? LYNX_EXPLORER_URL_CN
-                              : LYNX_EXPLORER_URL_EN,
-                          ),
-                          target: '_blank',
-                        }}
-                        size="small"
-                        underline
-                      >
-                        {lynxExplorerText}
-                      </Typography.Text>{' '}
-                      {t('go.scan.message-2')}
-                    </Typography.Text>
-                    <div className={s['qrcode-svg']}>
-                      <QRCodeSVG value={qrcodeUrl} />
-                    </div>
-                    <div style={{ marginBottom: '32px' }}>
-                      <CopyToClipboard
-                        onCopy={() => {
-                          Toast.success(t('go.qrcode.copied'));
-                        }}
-                        text={qrcodeUrl}
-                      >
-                        <Button
-                          type="tertiary"
-                          style={{ fontSize: '12px' }}
-                          icon={<IconCopyLink style={{ fontSize: '16px' }} />}
-                        >
-                          {t('go.qrcode.copy-link')}
-                        </Button>
-                      </CopyToClipboard>
-                    </div>
-                    {schemaOptions && (
-                      <SwitchSchema
-                        optionsData={schemaOptions}
-                        currentEntryFileUrl={currentEntryFileUrl}
-                        onSwitchSchema={onSwitchSchema}
-                      />
-                    )}
-                    <div className={s['qrcode-entry']}>
-                      <Typography.Text
-                        size="small"
-                        type="tertiary"
-                        style={{ marginRight: '12px', flexShrink: 0 }}
-                      >
-                        {t('go.qrcode.entry')}
-                      </Typography.Text>
-                      <Select
-                        style={{ width: '100%', maxWidth: '200px' }}
-                        value={currentEntry}
-                        onChange={(v) => setCurrentEntry(v as string)}
-                      >
-                        {entryFiles?.map((file) => (
-                          <Select.Option key={file.name} value={file.name}>
-                            {file.name}
-                          </Select.Option>
-                        ))}
-                      </Select>
-                    </div>
-                  </div>
+                      {lynxExplorerText}
+                    </Typography.Text>{' '}
+                    {t('go.scan.message-2')}
+                  </Typography.Text>
                 )}
-                {previewImage && (
-                  <PreviewImg
-                    show={previewType === PreviewType.Preview}
-                    previewImage={previewImage}
+                <div className={s['qrcode-svg']}>
+                  <QRCodeSVG value={qrcodeUrl} />
+                </div>
+                <div style={{ marginBottom: '32px' }}>
+                  <CopyToClipboard
+                    onCopy={() => {
+                      Toast.success(t('go.qrcode.copied'));
+                    }}
+                    text={qrcodeUrl}
+                  >
+                    <Button
+                      type="tertiary"
+                      style={{ fontSize: '12px' }}
+                      icon={<IconCopyLink style={{ fontSize: '16px' }} />}
+                    >
+                      {t('go.qrcode.copy-link')}
+                    </Button>
+                  </CopyToClipboard>
+                </div>
+                {!nativeFramework && schemaOptions && (
+                  <SwitchSchema
+                    optionsData={schemaOptions}
+                    currentEntryFileUrl={currentEntryFileUrl}
+                    onSwitchSchema={onSwitchSchema}
                   />
                 )}
-                {hasWebPreview && (
-                  <NoSSRComponent>
-                    <Suspense fallback={<div>Loading...</div>}>
-                      <WebIframe
-                        show={previewType === PreviewType.Web}
-                        src={defaultWebPreviewFile || ''}
-                      />
-                    </Suspense>
-                  </NoSSRComponent>
+                <div className={s['qrcode-entry']}>
+                  <Typography.Text
+                    size="small"
+                    type="tertiary"
+                    style={{ marginRight: '12px', flexShrink: 0 }}
+                  >
+                    {t('go.qrcode.entry')}
+                  </Typography.Text>
+                  <Select
+                    style={{ width: '100%', maxWidth: '200px' }}
+                    value={currentEntry}
+                    onChange={(v) => setCurrentEntry(v as string)}
+                  >
+                    {entryFiles?.map((file) => (
+                      <Select.Option key={file.name} value={file.name}>
+                        {file.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </div>
+                {/* Additive deep link, only when the plan offers one here
+                      (universal + configured, or sparkling on mobile). */}
+                {plan.showDeepLink && (
+                  <DeepLinkRow
+                    resolvedDeepLinkUrl={resolvedDeepLinkUrl}
+                    canOpenDeepLink={canOpenDeepLink}
+                    nativeFramework={nativeFramework}
+                    t={t}
+                  />
                 )}
               </div>
             </div>
-          </ResizableContainer>
+          )}
+          {previewImage && (
+            <div
+              className={s['preview-panel']}
+              style={{
+                zIndex: previewType === PreviewType.Preview ? 1 : 0,
+                visibility:
+                  previewType === PreviewType.Preview ? 'visible' : 'hidden',
+                pointerEvents:
+                  previewType === PreviewType.Preview ? 'auto' : 'none',
+              }}
+            >
+              <PreviewImg
+                previewImage={previewImage}
+                active={previewType === PreviewType.Preview}
+              />
+            </div>
+          )}
+          {hasWebPreview && (
+            <div
+              className={s['preview-panel']}
+              style={{
+                zIndex: previewType === PreviewType.Web ? 1 : 0,
+                visibility:
+                  previewType === PreviewType.Web ? 'visible' : 'hidden',
+                pointerEvents:
+                  previewType === PreviewType.Web ? 'auto' : 'none',
+              }}
+            >
+              <NoSSRComponent>
+                <Suspense fallback={<div>Loading...</div>}>
+                  <WebIframe
+                    show={previewType === PreviewType.Web}
+                    src={defaultWebPreviewFile || ''}
+                    webPreviewMode={webPreviewMode}
+                    designWidth={designWidth}
+                    designHeight={designHeight}
+                    fitThresholdScale={fitThresholdScale}
+                    fitMinScale={fitMinScale}
+                    fit={fit}
+                  />
+                </Suspense>
+              </NoSSRComponent>
+            </div>
+          )}
+        </div>
+        {/* Only in the visible preview pane — renderCodeWrap() renders it when
+            the preview is hidden, so the two never render at once. */}
+        {showPreview && renderOpenIn()}
+      </div>
+    </div>
+  );
+
+  return (
+    <div
+      className={`${s.box} ${fullscreenMode !== 'off' ? s['box-fullscreen'] : ''} ${!showCode ? s['box-code-collapsed'] : ''} ${hasPreview && !showPreview ? s['box-preview-collapsed'] : ''}`}
+      ref={boxRef}
+    >
+      <div className={s.container} ref={containerRef}>
+        <div className={s.content}>
+          {mode === 'preview' ? (
+            renderPreviewWrap()
+          ) : mode === 'source' ? (
+            renderCodeWrap()
+          ) : hasPreview ? (
+            <SplitPane
+              ref={splitPaneRef}
+              show={hasPreview}
+              vertical={isVertical}
+              collapsed={hasPreview && !showPreview}
+              onCollapsedChange={(c) => {
+                setShowPreview(!c);
+                if (c && !showCode) setShowCode(true);
+              }}
+              firstCollapsed={hasPreview && !showCode}
+              onFirstCollapsedChange={(c) => {
+                setShowCode(!c);
+                if (c && !showPreview) setShowPreview(true);
+              }}
+              first={renderCodeWrap()}
+              second={renderPreviewWrap()}
+            />
+          ) : (
+            renderCodeWrap()
+          )}
         </div>
         <div className={s.footer}>
           <Space
@@ -367,13 +628,17 @@ export const ExampleContent: FC<ExampleContentProps> = ({
               whiteSpace: 'nowrap',
             }}
           >
-            <Button
-              theme="borderless"
-              icon={<IconList style={{ color: 'var(--semi-color-text-2)' }} />}
-              type="tertiary"
-              size="small"
-              onClick={() => setShowFileTree(true)}
-            />
+            {mode !== 'preview' && (
+              <Button
+                theme="borderless"
+                icon={
+                  <IconList style={{ color: 'var(--semi-color-text-2)' }} />
+                }
+                type="tertiary"
+                size="small"
+                onClick={() => setShowFileTree(true)}
+              />
+            )}
             <Space spacing={2} style={{ overflow: 'hidden' }}>
               <Typography.Text
                 size="small"
@@ -382,25 +647,76 @@ export const ExampleContent: FC<ExampleContentProps> = ({
               >
                 {name}
               </Typography.Text>
-              <IconChevronRightStroked
-                style={{ color: 'var(--semi-color-text-2)', fontSize: '12px' }}
-              />
-              <Typography.Text
-                size="small"
-                type="tertiary"
-                ellipsis={{ showTooltip: true }}
-              >
-                {currentFileName}
-              </Typography.Text>
+              {mode !== 'preview' && (
+                <>
+                  <IconChevronRightStroked
+                    style={{
+                      color: 'var(--semi-color-text-2)',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Typography.Text
+                    size="small"
+                    type="tertiary"
+                    ellipsis={{ showTooltip: true }}
+                  >
+                    {currentFileName}
+                  </Typography.Text>
+                </>
+              )}
             </Space>
           </Space>
           <Space spacing={7}>
-            {hasPreview && (
+            {mode !== 'preview' && (
+              <Button
+                theme="borderless"
+                icon={
+                  <IconGithub style={{ color: 'var(--semi-color-text-2)' }} />
+                }
+                type="tertiary"
+                size="small"
+                onClick={() => {
+                  window.open(
+                    `${exampleGitBaseUrl}/${directory}/${currentFileName}`,
+                    '_blank',
+                  );
+                }}
+              />
+            )}
+            {hasPreview && mode === 'linked' && (
               <Space spacing={6}>
-                <Typography.Text size="small" type="tertiary">
+                <Typography.Text
+                  size="small"
+                  type="tertiary"
+                  className={s['toggle-label']}
+                >
+                  Code
+                </Typography.Text>
+                <Switch
+                  style={{
+                    backgroundColor: showCode
+                      ? 'var(--semi-color-info)'
+                      : 'var(--semi-color-fill-0)',
+                    cursor: 'pointer',
+                  }}
+                  checked={showCode}
+                  onChange={(checked) => {
+                    setShowCode(checked);
+                    if (!checked && !showPreview) setShowPreview(true);
+                  }}
+                  size="small"
+                />
+              </Space>
+            )}
+            {hasPreview && mode === 'linked' && (
+              <Space spacing={6}>
+                <Typography.Text
+                  size="small"
+                  type="tertiary"
+                  className={s['toggle-label']}
+                >
                   {t('go.preview')}
                 </Typography.Text>
-
                 <Switch
                   style={{
                     backgroundColor: showPreview
@@ -409,26 +725,41 @@ export const ExampleContent: FC<ExampleContentProps> = ({
                     cursor: 'pointer',
                   }}
                   checked={showPreview}
-                  onChange={setShowPreview}
+                  onChange={(v) => {
+                    setShowPreview(v);
+                    if (!v && !showCode) setShowCode(true);
+                  }}
                   size="small"
                 />
               </Space>
             )}
-
-            <Button
-              theme="borderless"
-              icon={
-                <IconGithub style={{ color: 'var(--semi-color-text-2)' }} />
-              }
-              type="tertiary"
-              size="small"
-              onClick={() => {
-                window.open(
-                  `${exampleGitBaseUrl}/${directory}/${currentFileName}`,
-                  '_blank',
-                );
-              }}
-            />
+            {mode !== 'preview' && (
+              <Button
+                theme="borderless"
+                icon={
+                  fullscreenMode !== 'off' ? (
+                    <IconExitFullscreen
+                      style={{ color: 'var(--semi-color-text-2)' }}
+                    />
+                  ) : (
+                    <IconFullscreen
+                      style={{ color: 'var(--semi-color-text-2)' }}
+                    />
+                  )
+                }
+                type="tertiary"
+                size="small"
+                onClick={() => {
+                  if (fullscreenMode !== 'off') {
+                    setFullscreenMode('off');
+                    setShowCode(true);
+                  } else {
+                    splitPaneRef.current?.ensureSecondMinSize(320);
+                    setFullscreenMode('all');
+                  }
+                }}
+              />
+            )}
             {rightFooter}
           </Space>
         </div>
@@ -465,4 +796,4 @@ export const ExampleContent: FC<ExampleContentProps> = ({
       </div>
     </div>
   );
-};
+}

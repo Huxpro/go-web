@@ -1,6 +1,7 @@
 import type React from 'react';
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ExamplePreviewProps } from './example-preview';
+import { useIsClient } from './example-preview/hooks/use-is-client';
 
 export type PreviewTab = 'preview' | 'web' | 'qrcode';
 
@@ -14,6 +15,17 @@ const DEFAULT_I18N: Record<string, string> = {
   'go.qrcode.copy-link': 'Copy link',
   'go.qrcode.copied': 'Copied!',
   'go.qrcode.entry': 'Entry:',
+  'go.openin': 'Open',
+  // Deep-link button label. Key is suffixed by `nativeFramework` (from
+  // metadata or prop); `.default` is used when no native framework is
+  // required (universal bundle, opens in Lynx Explorer).
+  'go.deeplink.open.default': 'Open in Lynx Explorer',
+  'go.deeplink.open.lynxtron': 'Open in Lynxtron Go',
+  'go.deeplink.open.sparkling': 'Open in Sparkling',
+  'go.deeplink.hint-desktop': 'desktop only',
+  'go.deeplink.hint-mobile': 'mobile only',
+  'go.deeplink.or': 'or',
+  'go.openin.show-qrcode': 'Show QR Code',
 };
 
 /** Default CodeBlock — plain <pre><code> with no syntax highlighting. */
@@ -38,9 +50,8 @@ const DefaultCodeBlock = ({
 
 /** Default NoSSR — renders children only in browser. */
 const DefaultNoSSR = ({ children }: { children: React.ReactNode }) => {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  return mounted ? <>{children}</> : null;
+  const isClient = useIsClient();
+  return isClient ? <>{children}</> : null;
 };
 
 /** Default useDark — tracks prefers-color-scheme media query. */
