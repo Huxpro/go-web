@@ -1,28 +1,75 @@
-import { useGoConfig, defaultUseDark } from '../../config';
+import type React from 'react';
+import { defaultUseDark, useGoConfig } from '../../config';
 
 const LOGO_LIGHT =
   'https://lf-lynx.tiktok-cdns.com/obj/lynx-artifacts-oss-sg/lynx-website/assets/lynx-dark-logo.svg';
 const LOGO_DARK =
   'https://lf-lynx.tiktok-cdns.com/obj/lynx-artifacts-oss-sg/lynx-website/assets/lynx-light-logo.svg';
 
-export const LoadingOverlay = ({ visible }: { visible: boolean }) => {
+export type WebPreviewLoadStage = 'runtime' | 'downloading' | 'rendering';
+
+const STAGE_DETAIL: Record<WebPreviewLoadStage, string> = {
+  runtime: 'Loading runtime…',
+  downloading: 'Downloading bundle…',
+  rendering: 'Rendering…',
+};
+
+export const LoadingOverlay = ({
+  visible,
+  error,
+  stage,
+}: {
+  visible: boolean;
+  error?: string | null;
+  stage?: WebPreviewLoadStage | null;
+}) => {
   const { useDark: useDarkHook = defaultUseDark } = useGoConfig();
   const isDark = useDarkHook();
   if (!visible) return null;
+
+  const containerStyle: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '12px',
+    zIndex: 1,
+    background: isDark ? '#1b1b1f' : '#ffffff',
+  };
+
+  if (error) {
+    return (
+      <div style={containerStyle}>
+        <img
+          src={isDark ? LOGO_DARK : LOGO_LIGHT}
+          alt="Lynx"
+          width={40}
+          height={40}
+          style={{ opacity: 0.3, filter: 'grayscale(1)' }}
+        />
+        <div
+          style={{
+            color: isDark ? '#f87171' : '#dc2626',
+            fontSize: '13px',
+            fontFamily: 'system-ui, sans-serif',
+            textAlign: 'center',
+            padding: '0 24px',
+            maxWidth: '320px',
+            lineHeight: '1.5',
+          }}
+        >
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  const detail = stage ? STAGE_DETAIL[stage] : null;
+
   return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '12px',
-        zIndex: 1,
-        background: isDark ? '#1b1b1f' : '#ffffff',
-      }}
-    >
+    <div style={containerStyle}>
       <img
         src={isDark ? LOGO_DARK : LOGO_LIGHT}
         alt="Lynx"
@@ -30,21 +77,44 @@ export const LoadingOverlay = ({ visible }: { visible: boolean }) => {
         height={40}
         style={{ opacity: 0.5 }}
       />
-      <div style={{ display: 'flex', gap: '6px' }}>
-        {[0, 1, 2].map((i) => (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '8px',
+        }}
+      >
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: isDark
+                  ? 'rgba(255,255,255,0.35)'
+                  : 'rgba(0,0,0,0.25)',
+                animation: `web-iframe-bounce 1.2s ${i * 0.15}s ease-in-out infinite`,
+              }}
+            />
+          ))}
+        </div>
+        {detail && (
           <div
-            key={i}
             style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: isDark
-                ? 'rgba(255,255,255,0.35)'
-                : 'rgba(0,0,0,0.25)',
-              animation: `web-iframe-bounce 1.2s ${i * 0.15}s ease-in-out infinite`,
+              color: isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)',
+              fontSize: '11px',
+              fontFamily: 'system-ui, sans-serif',
+              letterSpacing: '0.02em',
+              lineHeight: 1,
+              userSelect: 'none',
             }}
-          />
-        ))}
+          >
+            {detail}
+          </div>
+        )}
         <style>{`@keyframes web-iframe-bounce {
   0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
   40% { opacity: 1; transform: scale(1.2); }

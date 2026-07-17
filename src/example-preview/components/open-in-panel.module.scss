@@ -1,0 +1,83 @@
+// ─── Deep-link link (bordered) ───────────────────────────────────────────────
+// One affordance, used everywhere: appended inside the QR tab and floating for
+// a desktop framework. Semi Design tokens → adapts to light / dark.
+
+.open-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--semi-color-link);
+  text-decoration: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--semi-color-bg-1);
+  border: 1px solid var(--semi-color-border);
+  transition: opacity 0.12s;
+
+  &:hover {
+    opacity: 0.8;
+  }
+
+  &[data-disabled] {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+}
+
+// ─── Additive deep-link row (inside the QR tab) ──────────────────────────────
+// A soft "or" divider separates the deep link from the QR flow above it.
+
+.deeplink-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 220px;
+  margin: 2px auto 20px;
+}
+
+.deeplink-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.deeplink-divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--semi-color-border));
+
+  &:last-child {
+    background: linear-gradient(to left, transparent, var(--semi-color-border));
+  }
+}
+
+.deeplink-divider-text {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--semi-color-text-2);
+}
+
+// ─── Floating (desktop framework: deep link, or "open on …" hint) ────────────
+
+.floating-toast {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 2;
+}
+
+.open-hint {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--semi-color-bg-1);
+  border: 1px solid var(--semi-color-border);
+}
