@@ -17,26 +17,28 @@
     min-height: 0;
     padding: 8px;
     display: flex;
-    gap: 8px;
-    :global {
-      .semi-resizable-resizableHandler {
-        z-index: 0;
-      }
-    }
   }
 
   .code-wrap,
   .preview-wrap {
     border-radius: 8px;
     border: 0.692px solid var(--semi-color-border);
-    background: var(--rp-code-block-bg, var(--semi-color-bg-1));
+  }
+
+  .preview-wrap {
+    background: var(--semi-color-bg-1);
   }
 
   .code-wrap {
     width: 100%;
+    height: 100%;
     min-width: 0;
-    overflow: auto;
-    background: var(--rp-code-block-bg, var(--semi-color-bg-1));
+    overflow: hidden;
+    position: relative;
+    background: var(
+      --shiki-dark-bg,
+      var(--rp-code-block-bg, var(--semi-color-bg-1))
+    );
     :global {
       div[class^='language-'] {
         margin: 0;
@@ -64,13 +66,20 @@
       height: 100%;
       overflow: auto;
       min-height: 0;
+      background: var(
+        --shiki-dark-bg,
+        var(--rp-code-block-bg, var(--semi-color-bg-1))
+      );
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
     .code-tab {
       width: 100%;
       :global {
         .semi-tabs-bar {
-          padding-left: 20px;
-          padding-right: 20px;
+          height: 36px;
+          padding-left: 12px;
+          padding-right: 12px;
           display: flex;
           overflow-x: auto;
           overflow-y: hidden;
@@ -95,6 +104,50 @@
       display: flex;
       flex-direction: column;
       align-items: center;
+      position: relative;
+    }
+    .preview-body {
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+    }
+    .preview-panel {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .preview-header {
+      width: 100%;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 4px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--semi-color-border);
+      :global {
+        .semi-radioGroup.semi-radioGroup-buttonRadio {
+          background: transparent !important;
+          overflow-x: auto;
+          overflow-y: hidden;
+          flex-wrap: nowrap;
+          &::-webkit-scrollbar {
+            display: none;
+          }
+        }
+        .semi-radio-addon-buttonRadio {
+          flex: 0 0 auto !important;
+          padding-left: 8px;
+          padding-right: 8px;
+          white-space: nowrap;
+        }
+        .semi-button-borderless {
+          background: transparent;
+        }
+      }
     }
     .qrcode {
       width: 100%;
@@ -103,6 +156,9 @@
       display: flex;
       flex-direction: column;
       align-items: center;
+      // Scroll when the panel is taller than the pane (short mobile viewports)
+      // so Copy Link / Entry / the deep link stay reachable instead of clipped.
+      overflow-y: auto;
       margin-top: 12px;
       .qrcode-svg {
         margin-bottom: 16px;
@@ -140,7 +196,6 @@
   border: 1px solid var(--semi-color-border);
   background: var(--semi-color-bg-0);
   box-sizing: border-box;
-  border-radius: 16px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -153,9 +208,6 @@
       flex-direction: column;
     }
     :global {
-      .semi-resizable-resizable {
-        width: 100% !important;
-      }
       pre.shiki {
         min-height: 0 !important;
       }
@@ -182,6 +234,9 @@
       }
     }
     .switch-schema {
+      display: none;
+    }
+    .toggle-label {
       display: none;
     }
   }
@@ -195,9 +250,6 @@
       flex-direction: column;
     }
     :global {
-      .semi-resizable-resizable {
-        width: 100% !important;
-      }
       pre.shiki {
         min-height: 0 !important;
       }
@@ -226,6 +278,131 @@
     .switch-schema {
       display: none;
     }
+    .toggle-label {
+      display: none;
+    }
+  }
+}
+
+.box-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  height: 100vh !important;
+  height: 100dvh !important;
+  width: 100vw;
+  border-radius: 0;
+  border: none;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  animation: fullscreen-enter 0.15s ease-out;
+
+  // Override mobile / container-query vertical stacking —
+  // fullscreen always uses horizontal layout with default sizing.
+  .content {
+    flex-direction: row !important;
+    align-items: stretch !important;
+  }
+
+  .code-wrap {
+    flex: initial !important;
+    min-height: 0 !important;
+    height: 100% !important;
+  }
+}
+
+// Frameless viewport — <lynx-view> dominates the full browser viewport,
+// including safe-area (no OS desktop fullscreen). Edge-to-edge, no Go chrome.
+.box-ultra {
+  background: #000;
+  // Override .box-fullscreen safe-area padding so lynx-view can own the
+  // entire viewport (status bar / home indicator regions included).
+  padding: 0 !important;
+  z-index: 99999;
+
+  .footer,
+  .preview-header,
+  .code-wrap {
+    display: none !important;
+  }
+
+  .content {
+    padding: 0;
+    gap: 0;
+  }
+
+  .preview-wrap {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    height: 100%;
+  }
+
+  .preview-wrap-content,
+  .preview-body,
+  .preview-panel {
+    height: 100%;
+  }
+
+  // Kill the SplitPane drag handle + give the preview the full box.
+  :global {
+    .split-pane__divider,
+    .split-pane__first {
+      display: none !important;
+    }
+    .split-pane__second {
+      flex: 1 1 auto !important;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+      max-height: none !important;
+    }
+  }
+}
+
+// Standalone host used by mode="ultra"
+.ultra {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: #000;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.box-code-collapsed {
+  .code-wrap {
+    min-height: 0 !important;
+    min-width: 0 !important;
+    overflow: hidden;
+    border-color: transparent;
+  }
+}
+
+.box-preview-collapsed {
+  .preview-wrap {
+    border-color: transparent;
+  }
+}
+
+@keyframes fullscreen-enter {
+  from {
+    opacity: 0.9;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 

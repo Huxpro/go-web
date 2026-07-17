@@ -17,7 +17,10 @@ const exampleNames = fs.existsSync(examplesDir)
 // Read example files at build time to produce the same raw markdown that
 // ExamplePreviewSSG renders during rspress SSG. This lets the example app
 // show the real SSG output as a visual reference.
-function readSSGMarkdown(exampleName: string, defaultFile = 'src/App.tsx'): string | null {
+function readSSGMarkdown(
+  exampleName: string,
+  defaultFile = 'src/App.tsx',
+): string | null {
   try {
     const code = fs.readFileSync(
       path.join(examplesDir, exampleName, defaultFile),
@@ -37,20 +40,36 @@ function readSSGMarkdown(exampleName: string, defaultFile = 'src/App.tsx'): stri
 
 const ssgPreviews: Record<string, string> = {};
 for (const name of exampleNames) {
-  const md = readSSGMarkdown(name);
+  const defaultFile = name.startsWith('vue-') ? 'src/App.vue' : 'src/App.tsx';
+  const md = readSSGMarkdown(name, defaultFile);
   if (md) ssgPreviews[name] = md;
 }
 
 export default defineConfig({
   plugins: [pluginReact(), pluginSass()],
 
+  server: {
+    port: 5969,
+    proxy: {
+      // Proxy requests to production examples when local examples are not available.
+      // This avoids CORS issues when testing the embed with go.lynxjs.org data.
+      '/proxy-lynx-examples': {
+        target: 'https://go.lynxjs.org',
+        pathRewrite: { '^/proxy-lynx-examples': '/lynx-examples' },
+        changeOrigin: true,
+      },
+    },
+  },
+
   html: {
-    template: './index.html',
+    template: ({ entryName }) =>
+      entryName === 'embed' ? './embed.html' : './index.html',
   },
 
   source: {
     entry: {
       index: './src/main.tsx',
+      embed: './src/embed-entry.tsx',
     },
     define: {
       // Inject the example list as a build-time constant
@@ -70,6 +89,12 @@ export default defineConfig({
       '@douyinfe/semi-ui/dist/css/semi.min.css': path.resolve(
         __dirname,
         'node_modules/@douyinfe/semi-ui/dist/css/semi.min.css',
+      ),
+
+      // --- web-core: resolve subpath for embed entry rebuild ---
+      '@lynx-js/web-core/client': path.resolve(
+        __dirname,
+        'node_modules/@lynx-js/web-core/dist/client/index.js',
       ),
     },
   },

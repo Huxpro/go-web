@@ -1,3 +1,4 @@
+import '@douyinfe/semi-ui/dist/css/semi.min.css';
 import React, {
   useCallback,
   useEffect,
@@ -6,10 +7,9 @@ import React, {
   useState,
 } from 'react';
 import { createRoot } from 'react-dom/client';
-import '@douyinfe/semi-ui/dist/css/semi.min.css';
-import { GoConfigProvider, Go } from '../../src/index';
-import type { PreviewTab, GoConfig } from '../../src/config';
-import type { ShikiTransformer, BundledLanguage } from 'shiki';
+import type { BundledLanguage, ShikiTransformer } from 'shiki';
+import type { GoConfig, PreviewTab } from '../../src/config';
+import { Go, GoConfigProvider } from '../../src/index';
 import './styles.css';
 
 const LOGO_LIGHT =
@@ -33,6 +33,14 @@ const translations: Record<string, Record<string, string>> = {
     'go.qrcode.copy-link': 'Copy Link',
     'go.qrcode.copied': 'Copied',
     'go.qrcode.entry': 'Entry',
+    'go.openin': 'Open',
+    'go.deeplink.open.default': 'Open in Lynx Explorer',
+    'go.deeplink.open.lynxtron': 'Open in Lynxtron Go',
+    'go.deeplink.open.sparkling': 'Open in Sparkling',
+    'go.deeplink.hint-desktop': 'desktop only',
+    'go.deeplink.hint-mobile': 'mobile only',
+    'go.deeplink.or': 'or',
+    'go.openin.show-qrcode': 'Show QR Code',
   },
   zh: {
     'go.preview': '预览',
@@ -43,6 +51,14 @@ const translations: Record<string, Record<string, string>> = {
     'go.qrcode.copy-link': '复制链接',
     'go.qrcode.copied': '已复制',
     'go.qrcode.entry': '入口',
+    'go.openin': '打开',
+    'go.deeplink.open.default': '在 Lynx Explorer 中打开',
+    'go.deeplink.open.lynxtron': '在 Lynxtron Go 中打开',
+    'go.deeplink.open.sparkling': '在 Sparkling 中打开',
+    'go.deeplink.hint-desktop': '仅桌面',
+    'go.deeplink.hint-mobile': '仅移动端',
+    'go.deeplink.or': '或',
+    'go.openin.show-qrcode': '显示二维码',
   },
 };
 
@@ -50,8 +66,12 @@ const translations: Record<string, Record<string, string>> = {
 // Standalone CodeBlock (shiki-based syntax highlighting)
 // ---------------------------------------------------------------------------
 
-let _codeHighlighterP: ReturnType<typeof import('shiki').then> | null = null;
-function getCodeHighlighter() {
+type ShikiHighlighter = Awaited<
+  ReturnType<(typeof import('shiki'))['createHighlighter']>
+>;
+
+let _codeHighlighterP: Promise<ShikiHighlighter> | null = null;
+function getCodeHighlighter(): Promise<ShikiHighlighter> {
   if (!_codeHighlighterP) {
     _codeHighlighterP = import('shiki').then((mod) =>
       mod.createHighlighter({
@@ -111,30 +131,32 @@ const StandaloneCodeBlock = ({
     if (html && onRendered) requestAnimationFrame(() => onRendered());
   }, [html, onRendered]);
 
-  if (!html) {
-    return (
-      <pre style={{ padding: '16px', margin: 0, overflow: 'auto' }}>
-        <code>{code}</code>
-      </pre>
-    );
-  }
   return (
-    <div className="rp-codeblock" dangerouslySetInnerHTML={{ __html: html }} />
+    <div className="rp-codeblock">
+      {html ? (
+        <div dangerouslySetInnerHTML={{ __html: html }} />
+      ) : (
+        <pre className="shiki">
+          <code>{code}</code>
+        </pre>
+      )}
+    </div>
   );
 };
 
 // Build-time injected list of available examples and SSG previews
 declare global {
-  interface ImportMeta {
-    env: {
-      EXAMPLES: string[];
-      SSG_PREVIEWS: Record<string, string>;
-    };
+  interface ImportMetaEnv {
+    readonly EXAMPLES?: string[];
+    readonly SSG_PREVIEWS?: Record<string, string>;
   }
 }
 const EXAMPLES: string[] = import.meta.env.EXAMPLES ?? ['hello-world'];
-const SSG_PREVIEWS: Record<string, string> =
-  import.meta.env.SSG_PREVIEWS ?? {};
+const SSG_PREVIEWS: Record<string, string> = import.meta.env.SSG_PREVIEWS ?? {};
+
+function getExampleSource(name: string): 'vue' | 'lynx' {
+  return name.startsWith('vue-') ? 'vue' : 'lynx';
+}
 
 // ---------------------------------------------------------------------------
 // URL State Persistence
@@ -146,6 +168,7 @@ interface UrlState {
   tab?: PreviewTab;
   file?: string;
   example?: string;
+  mode?: 'linked' | 'preview' | 'source' | 'ultra';
 }
 
 function readUrlState(): UrlState {
@@ -308,6 +331,7 @@ function AdaptiveControl<T extends string>(props: {
   if (isMobile) {
     return (
       <select
+        aria-label="Select option"
         value={props.value}
         onChange={(e) => props.onChange(e.target.value as T)}
         style={selectStyle}
@@ -346,7 +370,223 @@ const panelLabelStyle: React.CSSProperties = {
 const panelInputStyle: React.CSSProperties = {
   ...inputStyle,
   width: 'auto',
+  minWidth: 0,
 };
+
+// Preset (nativeFramework, deepLinkUrl) combinations for the deep-link / QR
+// surface, so the different permutations can be loaded with one click.
+const DEEPLINK_PRESETS: {
+  label: string;
+  title: string;
+  deepLinkUrl: string;
+  nativeFramework: string;
+  defaultTab: PreviewTab;
+}[] = [
+  {
+    label: 'Universal',
+    title: 'Runs anywhere · no deepLink → QR on both desktop and mobile',
+    deepLinkUrl: '',
+    nativeFramework: '',
+    defaultTab: 'qrcode',
+  },
+  {
+    label: 'Universal + Deep Link',
+    title:
+      'Runs anywhere · deepLink → QR + additive “or / Open in …” on both platforms',
+    deepLinkUrl: 'lynx-explorer://open?url={{{urlEncoded}}}',
+    nativeFramework: '',
+    defaultTab: 'qrcode',
+  },
+  {
+    label: 'Lynxtron',
+    title:
+      'Desktop framework (default scheme) → deep link on desktop, hint on mobile',
+    deepLinkUrl: '',
+    nativeFramework: 'lynxtron',
+    defaultTab: 'qrcode',
+  },
+  {
+    label: 'Sparkling',
+    title:
+      'Mobile framework (default scheme) → QR on desktop, deep link + QR on mobile',
+    deepLinkUrl: '',
+    nativeFramework: 'sparkling',
+    defaultTab: 'qrcode',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// PanelSection — one props-panel column.
+//   Desktop: a fixed-width (or growing) column. Fixed-width columns fill the
+//     panel height via an absolutely-positioned scroller, so every column is as
+//     tall as the tallest (the growing controls column) instead of a fixed cap.
+//   Mobile: a collapsible section with a separator line, folded to save space.
+// ---------------------------------------------------------------------------
+
+function PanelSection({
+  title,
+  headerExtra,
+  isNarrow,
+  width,
+  grow,
+  defaultOpen = true,
+  bodyStyle,
+  children,
+}: {
+  title: string;
+  headerExtra?: React.ReactNode;
+  isNarrow: boolean;
+  width?: number;
+  grow?: boolean;
+  defaultOpen?: boolean;
+  bodyStyle?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  const header = (
+    <div
+      style={{
+        ...panelLabelStyle,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+      }}
+    >
+      <span>{title}</span>
+      {headerExtra}
+    </div>
+  );
+
+  if (isNarrow) {
+    return (
+      <div style={{ width: '100%', borderTop: '1px solid var(--sb-border)' }}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '9px 16px',
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            font: 'inherit',
+          }}
+        >
+          <span
+            style={{
+              color: 'var(--sb-text-dim)',
+              fontSize: 9,
+              transition: 'transform 0.15s',
+              transform: open ? 'rotate(90deg)' : 'none',
+            }}
+          >
+            ▶
+          </span>
+          <span style={panelLabelStyle}>{title}</span>
+          {headerExtra}
+        </button>
+        {open && (
+          <div style={{ padding: '0 16px 12px', ...bodyStyle }}>{children}</div>
+        )}
+      </div>
+    );
+  }
+
+  if (grow) {
+    return (
+      <div
+        style={{
+          flex: '1 1 0',
+          minWidth: 120,
+          padding: '10px 16px',
+          overflow: 'hidden',
+          ...bodyStyle,
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: `0 0 ${width}px`, position: 'relative', minHeight: 0 }}>
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          overflow: 'auto',
+          padding: '10px 12px',
+        }}
+      >
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            background: 'var(--sb-bg)',
+            paddingBottom: 4,
+            zIndex: 1,
+          }}
+        >
+          {header}
+        </div>
+        <div style={bodyStyle}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Column Resizer (Finder-style drag handle between columns)
+// ---------------------------------------------------------------------------
+
+function ColumnResizer({
+  widthRef,
+  onWidthChange,
+  reverse,
+}: {
+  widthRef: React.RefObject<number>;
+  onWidthChange: (w: number) => void;
+  reverse?: boolean;
+}) {
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      const el = e.currentTarget as HTMLElement;
+      el.setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startW = widthRef.current!;
+      const sign = reverse ? -1 : 1;
+      const onPointerMove = (ev: PointerEvent) => {
+        onWidthChange(Math.max(80, startW + (ev.clientX - startX) * sign));
+      };
+      const onPointerUp = () => {
+        el.removeEventListener('pointermove', onPointerMove);
+        el.removeEventListener('pointerup', onPointerUp);
+        el.removeEventListener('pointercancel', onPointerUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      el.addEventListener('pointermove', onPointerMove);
+      el.addEventListener('pointerup', onPointerUp);
+      el.addEventListener('pointercancel', onPointerUp);
+    },
+    [widthRef, onWidthChange, reverse],
+  );
+
+  return (
+    <div
+      className="col-resizer"
+      onPointerDown={handlePointerDown}
+      style={{ touchAction: 'none' }}
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // JSX snippet builder (for copy-to-clipboard)
@@ -361,6 +601,7 @@ function buildJsxString({
   highlight,
   img,
   schema,
+  mode,
 }: {
   example: string;
   defaultFile: string;
@@ -370,13 +611,18 @@ function buildJsxString({
   highlight: string;
   img: string;
   schema: string;
+  mode: 'linked' | 'preview' | 'source' | 'ultra';
 }): string {
   const props: string[] = [`example="${example}"`];
-  if (defaultFile) props.push(`defaultFile="${defaultFile}"`);
-  if (defaultTab !== 'web') props.push(`defaultTab="${defaultTab}"`);
-  if (defaultEntryFile) props.push(`defaultEntryFile="${defaultEntryFile}"`);
-  if (highlight) props.push(`highlight="${highlight}"`);
-  if (entryFilter) {
+  if (defaultFile && mode !== 'preview' && mode !== 'ultra')
+    props.push(`defaultFile="${defaultFile}"`);
+  if (defaultTab !== 'web' && mode !== 'source' && mode !== 'ultra')
+    props.push(`defaultTab="${defaultTab}"`);
+  if (defaultEntryFile && mode !== 'source' && mode !== 'ultra')
+    props.push(`defaultEntryFile="${defaultEntryFile}"`);
+  if (highlight && mode !== 'preview' && mode !== 'ultra')
+    props.push(`highlight="${highlight}"`);
+  if (entryFilter && mode !== 'source' && mode !== 'ultra') {
     if (entryFilter.includes(',')) {
       props.push(
         `entry={${JSON.stringify(entryFilter.split(',').map((s) => s.trim()))}}`,
@@ -385,8 +631,10 @@ function buildJsxString({
       props.push(`entry="${entryFilter}"`);
     }
   }
-  if (schema) props.push(`schema="${schema}"`);
-  if (img) props.push(`img="${img}"`);
+  if (schema && mode !== 'source' && mode !== 'ultra')
+    props.push(`schema="${schema}"`);
+  if (img && mode !== 'source' && mode !== 'ultra') props.push(`img="${img}"`);
+  if (mode !== 'linked') props.push(`mode="${mode}"`);
 
   if (props.length <= 2) {
     return `<Go ${props.join(' ')} />`;
@@ -412,11 +660,45 @@ function getJsonHighlighter() {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Given an entry name (from bundle filename, e.g. "gallery-autoscroll") and the
+ * full file list, find the actual source directory and index file.
+ *
+ * Entry keys in lynx.config.ts may differ in casing/hyphenation from source
+ * directory names (e.g. entry "gallery-autoscroll" → dir "GalleryAutoScroll"),
+ * so we normalize both sides by stripping hyphens and comparing lowercase.
+ */
+function findEntrySourceDir(
+  entryName: string,
+  files: string[],
+): { srcDir: string; indexFile: string | undefined } | undefined {
+  const normalize = (s: string) => s.replace(/-/g, '').toLowerCase();
+  const target = normalize(entryName);
+  for (const f of files) {
+    const m = f.match(/^src\/([^/]+)\/index\.\w+$/);
+    if (m) {
+      const dirName = m[1];
+      if (normalize(dirName) === target) {
+        return { srcDir: `src/${dirName}`, indexFile: f };
+      }
+    }
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
 function App() {
   const initial = useMemo(() => readUrlState(), []);
+
+  // On narrow screens the multi-column props panel stacks vertically instead of
+  // scrolling sideways, so every control (inputs, presets) stays reachable.
+  const isNarrow = useIsMobile();
 
   const [lang, setLang] = useState<Lang>(initial.lang ?? 'en');
   const [dark, setDark] = useState(
@@ -427,8 +709,18 @@ function App() {
     initial.tab ?? 'web',
   );
   const [example, setExample] = useState(initial.example ?? 'hello-world');
-  const [defaultFile, setDefaultFile] = useState(initial.file ?? 'src/App.tsx');
+  const [defaultFile, setDefaultFile] = useState(
+    initial.file ??
+      ((initial.example ?? 'hello-world').startsWith('vue-')
+        ? 'src/App.vue'
+        : 'src/App.tsx'),
+  );
+  const [mode, setMode] = useState<'linked' | 'preview' | 'source' | 'ultra'>(
+    initial.mode ?? 'linked',
+  );
   const [copied, setCopied] = useState(false);
+  const [exampleSearch, setExampleSearch] = useState('');
+  const [entrySearch, setEntrySearch] = useState('');
 
   // Metadata & entry state
   const [metadata, setMetadata] = useState<Record<string, any> | null>(null);
@@ -439,12 +731,41 @@ function App() {
   const [highlight, setHighlight] = useState('');
   const [img, setImg] = useState('');
   const [schema, setSchema] = useState('');
+  const [deepLinkUrl, setDeepLinkUrl] = useState('');
+  const [nativeFramework, setNativeFramework] = useState<string>('');
   const [propsOpen, setPropsOpen] = useState(true);
+
+  // Which preset (if any) the current props match — drives the compact select.
+  const activePreset = DEEPLINK_PRESETS.find(
+    (p) =>
+      p.deepLinkUrl === deepLinkUrl && p.nativeFramework === nativeFramework,
+  );
   const [ssgOpen, setSsgOpen] = useState(false);
   const [jsxDialogOpen, setJsxDialogOpen] = useState(false);
   const [jsxCopied, setJsxCopied] = useState(false);
   const jsxPreRef = useRef<HTMLPreElement>(null);
   const [metadataHtml, setMetadataHtml] = useState('');
+
+  // Resizable column widths
+  const col1Ref = useRef(180);
+  const col2Ref = useRef(180);
+  const col4Ref = useRef(300);
+  const [col1W, setCol1W] = useState(180);
+  const [col2W, setCol2W] = useState(180);
+  const [col4W, setCol4W] = useState(300);
+
+  const setCol1 = useCallback((w: number) => {
+    col1Ref.current = w;
+    setCol1W(w);
+  }, []);
+  const setCol2 = useCallback((w: number) => {
+    col2Ref.current = w;
+    setCol2W(w);
+  }, []);
+  const setCol4 = useCallback((w: number) => {
+    col4Ref.current = w;
+    setCol4W(w);
+  }, []);
 
   const jsxString = useMemo(
     () =>
@@ -457,6 +778,7 @@ function App() {
         highlight,
         img,
         schema,
+        mode,
       }),
     [
       example,
@@ -467,6 +789,7 @@ function App() {
       highlight,
       img,
       schema,
+      mode,
     ],
   );
 
@@ -497,10 +820,27 @@ function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [jsxDialogOpen]);
 
+  // Exit playground ultra mode on Escape
+  useEffect(() => {
+    if (mode !== 'ultra') return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMode('linked');
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [mode]);
+
   // Persist state to URL hash
   useEffect(() => {
-    writeUrlState({ dark, lang, tab: defaultTab, file: defaultFile, example });
-  }, [dark, lang, defaultTab, defaultFile, example]);
+    writeUrlState({
+      dark,
+      lang,
+      tab: defaultTab,
+      file: defaultFile,
+      example,
+      mode: mode === 'linked' ? undefined : mode,
+    });
+  }, [dark, lang, defaultTab, defaultFile, example, mode]);
 
   // Apply Semi UI dark/light mode
   useEffect(() => {
@@ -533,6 +873,7 @@ function App() {
   useEffect(() => {
     setMetadata(null);
     setMetadataLoading(true);
+    setEntrySearch('');
     fetch(`/lynx-examples/${example}/example-metadata.json`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -545,14 +886,18 @@ function App() {
           setSelectedEntry(first.name);
           setDefaultEntryFile(first.file);
           if (data.templateFiles.length > 1) {
-            setDefaultFile(`src/${first.name}/index.tsx`);
-            setEntryFilter(`src/${first.name}`);
+            const found = findEntrySourceDir(first.name, data.files ?? []);
+            setDefaultFile(found?.indexFile ?? `src/${first.name}/index.tsx`);
+            setEntryFilter(found?.srcDir ?? `src/${first.name}`);
           } else {
             setEntryFilter('');
           }
         }
         setHighlight('');
-        setImg(data.previewImage || '');
+        setImg(
+          data.previewImage ||
+            'https://lf-lynx.tiktok-cdns.com/obj/lynx-artifacts-oss-sg/lynx-website/assets/doc/hello-world-showcase-ios.png',
+        );
         setSchema('');
       })
       .catch(() => setMetadata(null))
@@ -585,8 +930,9 @@ function App() {
       if (entry) {
         setDefaultEntryFile(entry.file);
         if (metadata!.templateFiles.length > 1) {
-          setDefaultFile(`src/${entryName}/index.tsx`);
-          setEntryFilter(`src/${entryName}`);
+          const found = findEntrySourceDir(entryName, metadata!.files ?? []);
+          setDefaultFile(found?.indexFile ?? `src/${entryName}/index.tsx`);
+          setEntryFilter(found?.srcDir ?? `src/${entryName}`);
         }
       }
     },
@@ -655,7 +1001,7 @@ function App() {
                 color: 'var(--sb-text-dim)',
               }}
             >
-              {'<GO>'}
+              {'<Go> with Examples'}
             </span>
           </span>
 
@@ -695,6 +1041,21 @@ function App() {
                   { value: 'qrcode', label: 'QR' },
                 ]}
                 onChange={(v) => setDefaultTab(v as PreviewTab)}
+              />
+            </ControlGroup>
+
+            <ControlGroup label="Mode">
+              <AdaptiveControl
+                value={mode}
+                options={[
+                  { value: 'linked', label: 'Linked' },
+                  { value: 'preview', label: 'Preview' },
+                  { value: 'source', label: 'Source' },
+                  { value: 'ultra', label: 'Ultra' },
+                ]}
+                onChange={(v) =>
+                  setMode(v as 'linked' | 'preview' | 'source' | 'ultra')
+                }
               />
             </ControlGroup>
 
@@ -751,109 +1112,164 @@ function App() {
               borderTop: '1px solid var(--sb-border)',
               background: 'var(--sb-bg)',
               display: 'flex',
-              overflowX: 'auto',
+              flexDirection: isNarrow ? 'column' : 'row',
+              overflowX: isNarrow ? 'visible' : 'auto',
             }}
           >
             {/* Col 1: examples list */}
-            <div
-              style={{
-                flex: '0 0 140px',
-                padding: '10px 12px',
-                overflow: 'auto',
-                maxHeight: 200,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1,
-              }}
-            >
-              <div
-                style={{
-                  ...panelLabelStyle,
-                  padding: '0 4px',
-                  marginBottom: 4,
-                }}
-              >
-                Examples
-              </div>
-              {EXAMPLES.map((name) => (
-                <button
-                  key={name}
-                  className="entry-list-btn"
-                  data-active={example === name}
-                  onClick={() => {
-                    setExample(name);
-                    setDefaultFile('src/App.tsx');
-                  }}
+            <PanelSection
+              title="Examples"
+              isNarrow={isNarrow}
+              width={col1W}
+              defaultOpen={false}
+              bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 1 }}
+              headerExtra={
+                <input
+                  type="text"
+                  value={exampleSearch}
+                  onChange={(e) => setExampleSearch(e.target.value)}
+                  placeholder="Filter…"
                   style={{
-                    padding: '3px 8px',
-                    borderRadius: 5,
-                    border: 'none',
-                    background:
-                      example === name ? 'var(--sb-accent)' : 'transparent',
-                    color: example === name ? '#fff' : 'var(--sb-text-dim)',
-                    fontSize: 11,
-                    fontFamily: 'var(--sb-font-mono)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap',
-                    transition: 'background 0.12s, color 0.12s',
+                    flex: 1,
+                    padding: '1px 5px',
+                    borderRadius: 4,
+                    border: '1px solid var(--sb-border)',
+                    background: 'transparent',
+                    color: 'inherit',
+                    fontSize: 10,
+                    fontFamily: 'inherit',
+                    outline: 'none',
+                    minWidth: 0,
                   }}
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
+                />
+              }
+            >
+              {EXAMPLES.filter(
+                (name) =>
+                  !exampleSearch ||
+                  name.toLowerCase().includes(exampleSearch.toLowerCase()),
+              ).map((name) => {
+                const source = getExampleSource(name);
+                const displayName =
+                  source === 'vue' ? name.replace(/^vue-/, '') : name;
+                return (
+                  <button
+                    key={name}
+                    className="entry-list-btn"
+                    data-active={example === name}
+                    onClick={() => {
+                      setExample(name);
+                      setDefaultFile(
+                        source === 'vue' ? 'src/App.vue' : 'src/App.tsx',
+                      );
+                    }}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: 5,
+                      border: 'none',
+                      background:
+                        example === name ? 'var(--sb-accent)' : 'transparent',
+                      color: example === name ? '#fff' : 'var(--sb-text-dim)',
+                      fontSize: 11,
+                      fontFamily: 'var(--sb-font-mono)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      whiteSpace: 'nowrap',
+                      transition: 'background 0.12s, color 0.12s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    {displayName}
+                    {source === 'vue' && (
+                      <span
+                        className="example-tag example-tag-vue"
+                        style={{
+                          fontSize: 9,
+                          padding: '0 4px',
+                          borderRadius: 3,
+                          lineHeight: '16px',
+                          fontWeight: 600,
+                          flexShrink: 0,
+                        }}
+                      >
+                        Vue
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </PanelSection>
+
+            {!isNarrow && (
+              <ColumnResizer widthRef={col1Ref} onWidthChange={setCol1} />
+            )}
 
             {/* Col 2: entry list */}
-            <div
-              style={{
-                flex: '0 0 180px',
-                padding: '10px 12px',
-                borderLeft: '1px solid var(--sb-border)',
-                overflow: 'auto',
-                maxHeight: 200,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1,
-              }}
-            >
-              <div
-                style={{
-                  ...panelLabelStyle,
-                  padding: '0 4px',
-                  marginBottom: 4,
-                }}
-              >
-                Entries
-              </div>
-              {metadata?.templateFiles?.map((t: any) => (
-                <button
-                  key={t.name}
-                  className="entry-list-btn"
-                  data-active={selectedEntry === t.name}
-                  onClick={() => handleEntryChange(t.name)}
+            <PanelSection
+              title="Entries"
+              isNarrow={isNarrow}
+              width={col2W}
+              defaultOpen={false}
+              bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 1 }}
+              headerExtra={
+                <input
+                  type="text"
+                  value={entrySearch}
+                  onChange={(e) => setEntrySearch(e.target.value)}
+                  placeholder="Filter…"
                   style={{
-                    padding: '3px 8px',
-                    borderRadius: 5,
-                    border: 'none',
-                    background:
-                      selectedEntry === t.name
-                        ? 'var(--sb-accent)'
-                        : 'transparent',
-                    color:
-                      selectedEntry === t.name ? '#fff' : 'var(--sb-text-dim)',
-                    fontSize: 11,
-                    fontFamily: 'var(--sb-font-mono)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    whiteSpace: 'nowrap',
-                    transition: 'background 0.12s, color 0.12s',
+                    flex: 1,
+                    padding: '1px 5px',
+                    borderRadius: 4,
+                    border: '1px solid var(--sb-border)',
+                    background: 'transparent',
+                    color: 'inherit',
+                    fontSize: 10,
+                    fontFamily: 'inherit',
+                    outline: 'none',
+                    minWidth: 0,
                   }}
-                >
-                  {t.name}
-                  {t.webFile ? '' : ' *'}
-                </button>
-              ))}
+                />
+              }
+            >
+              {metadata?.templateFiles
+                ?.filter(
+                  (t: any) =>
+                    !entrySearch ||
+                    t.name.toLowerCase().includes(entrySearch.toLowerCase()),
+                )
+                .map((t: any) => (
+                  <button
+                    key={t.name}
+                    className="entry-list-btn"
+                    data-active={selectedEntry === t.name}
+                    onClick={() => handleEntryChange(t.name)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: 5,
+                      border: 'none',
+                      background:
+                        selectedEntry === t.name
+                          ? 'var(--sb-accent)'
+                          : 'transparent',
+                      color:
+                        selectedEntry === t.name
+                          ? '#fff'
+                          : 'var(--sb-text-dim)',
+                      fontSize: 11,
+                      fontFamily: 'var(--sb-font-mono)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      whiteSpace: 'nowrap',
+                      transition: 'background 0.12s, color 0.12s',
+                    }}
+                  >
+                    {t.name}
+                    {t.webFile ? '' : ' *'}
+                  </button>
+                ))}
               {!metadata && (
                 <span
                   style={{
@@ -865,14 +1281,19 @@ function App() {
                   {metadataLoading ? 'Loading…' : '—'}
                 </span>
               )}
-            </div>
+            </PanelSection>
+
+            {!isNarrow && (
+              <ColumnResizer widthRef={col2Ref} onWidthChange={setCol2} />
+            )}
 
             {/* Col 3: controls */}
-            <div
-              style={{
-                flex: '1 1 0',
-                padding: '10px 16px',
-                borderLeft: '1px solid var(--sb-border)',
+            <PanelSection
+              title="Props"
+              isNarrow={isNarrow}
+              grow
+              defaultOpen
+              bodyStyle={{
                 display: 'grid',
                 gridTemplateColumns: 'auto 1fr',
                 gap: '5px 10px',
@@ -882,6 +1303,7 @@ function App() {
             >
               <span style={panelLabelStyle}>File</span>
               <input
+                aria-label="File"
                 type="text"
                 value={defaultFile}
                 onChange={(e) => setDefaultFile(e.target.value)}
@@ -890,6 +1312,7 @@ function App() {
 
               <span style={panelLabelStyle}>Entry File</span>
               <input
+                aria-label="Entry File"
                 type="text"
                 value={defaultEntryFile}
                 onChange={(e) => setDefaultEntryFile(e.target.value)}
@@ -899,6 +1322,7 @@ function App() {
 
               <span style={panelLabelStyle}>Entry Filter</span>
               <input
+                aria-label="Entry Filter"
                 type="text"
                 value={entryFilter}
                 onChange={(e) => setEntryFilter(e.target.value)}
@@ -908,6 +1332,7 @@ function App() {
 
               <span style={panelLabelStyle}>Highlight</span>
               <input
+                aria-label="Highlight"
                 type="text"
                 value={highlight}
                 onChange={(e) => setHighlight(e.target.value)}
@@ -915,12 +1340,19 @@ function App() {
                 placeholder="{5-10}"
               />
 
-              <span style={panelLabelStyle}>Img</span>
+              <span style={panelLabelStyle}>
+                Img{!metadata?.previewImage && img ? ' *' : ''}
+              </span>
               <input
                 type="text"
                 value={img}
                 onChange={(e) => setImg(e.target.value)}
-                style={panelInputStyle}
+                style={{
+                  ...panelInputStyle,
+                  ...(!metadata?.previewImage && img
+                    ? { borderColor: 'var(--sb-accent)', opacity: 0.7 }
+                    : {}),
+                }}
                 placeholder="https://..."
               />
 
@@ -932,22 +1364,97 @@ function App() {
                 style={panelInputStyle}
                 placeholder="lynx://..."
               />
-            </div>
+
+              <span style={panelLabelStyle}>Presets</span>
+              <select
+                aria-label="Preset"
+                value={activePreset?.label ?? ''}
+                title={activePreset?.title}
+                onChange={(e) => {
+                  const p = DEEPLINK_PRESETS.find(
+                    (x) => x.label === e.target.value,
+                  );
+                  if (!p) return;
+                  setDeepLinkUrl(p.deepLinkUrl);
+                  setNativeFramework(p.nativeFramework);
+                  setDefaultTab(p.defaultTab);
+                }}
+                style={{ ...selectStyle, width: 'auto', maxWidth: '100%' }}
+              >
+                {!activePreset && <option value="">Custom…</option>}
+                {DEEPLINK_PRESETS.map((p) => (
+                  <option key={p.label} value={p.label}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+
+              <span style={panelLabelStyle}>Deep Link</span>
+              <input
+                type="text"
+                value={deepLinkUrl}
+                onChange={(e) => setDeepLinkUrl(e.target.value)}
+                style={panelInputStyle}
+                placeholder="myapp://open?url={{{urlEncoded}}}"
+              />
+
+              <span style={panelLabelStyle}>Native Framework</span>
+              <input
+                type="text"
+                value={nativeFramework}
+                onChange={(e) => setNativeFramework(e.target.value)}
+                style={panelInputStyle}
+                placeholder="lynxtron / sparkling / (empty = universal)"
+              />
+            </PanelSection>
+
+            {!isNarrow && (
+              <ColumnResizer
+                widthRef={col4Ref}
+                onWidthChange={setCol4}
+                reverse
+              />
+            )}
 
             {/* Right: metadata JSON */}
-            <div
-              style={{
-                flex: '0 0 33.3%',
-                minWidth: 0,
-                borderLeft: '1px solid var(--sb-border)',
-                padding: '10px 16px',
-                overflow: 'auto',
-                maxHeight: 200,
-              }}
+            <PanelSection
+              title="Metadata"
+              isNarrow={isNarrow}
+              width={col4W}
+              defaultOpen={false}
+              headerExtra={
+                <>
+                  {metadata?.version && (
+                    <span className="example-tag example-tag-version">
+                      {metadata.version}
+                    </span>
+                  )}
+                  {metadata?.reactLynxVersion && (
+                    <span className="example-tag example-tag-react">
+                      react {metadata.reactLynxVersion}
+                    </span>
+                  )}
+                  {metadata?.vueLynxVersion && (
+                    <span className="example-tag example-tag-vue">
+                      vue-lynx {metadata.vueLynxVersion}
+                    </span>
+                  )}
+                  {metadata?.templateFiles?.length > 0 && (
+                    <span
+                      className={`example-tag ${
+                        metadata?.templateFiles?.some((t: any) => t.webFile)
+                          ? 'example-tag-web'
+                          : 'example-tag-no-web'
+                      }`}
+                    >
+                      {metadata?.templateFiles?.some((t: any) => t.webFile)
+                        ? 'Web'
+                        : 'No Web'}
+                    </span>
+                  )}
+                </>
+              }
             >
-              <div style={{ ...panelLabelStyle, marginBottom: 8 }}>
-                example-metadata.json
-              </div>
               {metadataHtml ? (
                 <div
                   className="metadata-shiki"
@@ -968,7 +1475,7 @@ function App() {
                   {metadataLoading ? 'Loading…' : 'No metadata'}
                 </pre>
               )}
-            </div>
+            </PanelSection>
           </div>
         )}
       </div>
@@ -977,41 +1484,53 @@ function App() {
       <main>
         <PreviewErrorBoundary>
           <GoConfigProvider config={goConfig}>
-            <div className="dual-view">
-              {/* Desktop */}
-              <div style={{ flex: '1 1 500px', minWidth: 0 }}>
+            {mode === 'ultra' ? (
+              <>
                 <Go
-                  key={`desktop-${example}-${selectedEntry}-${defaultTab}`}
+                  key={`ultra-${example}-${selectedEntry}`}
                   example={example}
-                  defaultFile={defaultFile}
-                  defaultTab={defaultTab}
                   defaultEntryFile={defaultEntryFile || undefined}
                   entry={entryFilter || undefined}
-                  highlight={highlight || undefined}
-                  img={img || undefined}
-                  schema={schema || undefined}
+                  mode="ultra"
+                  webPreviewMode={
+                    example.startsWith('lynx-ui') ? 'auto' : 'responsive'
+                  }
                 />
-                <div className="figure-caption">Desktop</div>
-              </div>
-              {/* Mobile — fixed 340×766 */}
-              <div
-                className="mobile-preview"
-                style={{
-                  flex: '0 0 340px',
-                  maxWidth: 340,
-                  overflow: 'hidden',
-                  containerType: 'inline-size' as any,
-                }}
-              >
-                <div
+                <button
+                  type="button"
+                  onClick={() => setMode('linked')}
+                  title="Exit ultra (Esc)"
                   style={{
-                    height: 766,
-                    overflow: 'hidden',
-                    borderRadius: 16,
+                    position: 'fixed',
+                    top: 12,
+                    right: 12,
+                    zIndex: 100000,
+                    opacity: 0.35,
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '6px 10px',
+                    background: 'rgba(255,255,255,0.12)',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontFamily: 'var(--sb-font-mono)',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = '1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = '0.35';
                   }}
                 >
+                  Exit Ultra
+                </button>
+              </>
+            ) : (
+              <div className="dual-view">
+                {/* Desktop */}
+                <div style={{ flex: '1 1 500px', minWidth: 0 }}>
                   <Go
-                    key={`mobile-${example}-${selectedEntry}-${defaultTab}`}
+                    key={`desktop-${example}-${selectedEntry}-${defaultTab}-${mode}`}
                     example={example}
                     defaultFile={defaultFile}
                     defaultTab={defaultTab}
@@ -1020,11 +1539,55 @@ function App() {
                     highlight={highlight || undefined}
                     img={img || undefined}
                     schema={schema || undefined}
+                    mode={mode}
+                    webPreviewMode={
+                      example.startsWith('lynx-ui') ? 'auto' : 'responsive'
+                    }
+                    deepLinkUrl={deepLinkUrl || undefined}
+                    nativeFramework={nativeFramework || undefined}
                   />
+                  <div className="figure-caption">Desktop</div>
                 </div>
-                <div className="figure-caption">Mobile (340 × 766)</div>
+                {/* Mobile — fixed 320×660 */}
+                <div
+                  className="mobile-preview"
+                  style={{
+                    flex: '0 0 320px',
+                    maxWidth: 320,
+                    overflow: 'hidden',
+                    containerType: 'inline-size' as any,
+                  }}
+                >
+                  <div
+                    style={{
+                      height: 660,
+                      overflow: 'hidden',
+                      borderRadius: 16,
+                    }}
+                  >
+                    <Go
+                      key={`mobile-${example}-${selectedEntry}-${defaultTab}-${mode}`}
+                      example={example}
+                      defaultFile={defaultFile}
+                      defaultTab={defaultTab}
+                      defaultEntryFile={defaultEntryFile || undefined}
+                      entry={entryFilter || undefined}
+                      highlight={highlight || undefined}
+                      img={img || undefined}
+                      schema={schema || undefined}
+                      mode={mode}
+                      webPreviewMode={
+                        example.startsWith('lynx-ui') ? 'auto' : 'responsive'
+                      }
+                      deepLinkUrl={deepLinkUrl || undefined}
+                      nativeFramework={nativeFramework || undefined}
+                      _forceMobile={true}
+                    />
+                  </div>
+                  <div className="figure-caption">Mobile (320 x 660)</div>
+                </div>
               </div>
-            </div>
+            )}
           </GoConfigProvider>
         </PreviewErrorBoundary>
       </main>
@@ -1105,7 +1668,7 @@ function App() {
                 className="jsx-dialog-close"
                 onClick={() => setJsxDialogOpen(false)}
               >
-                ×
+                x
               </button>
             </div>
             <pre ref={jsxPreRef}>{jsxString}</pre>

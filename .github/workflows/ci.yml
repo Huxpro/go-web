@@ -1,53 +1,31 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  typecheck:
-    name: Type Check
+  validate:
+    name: Validate
+    uses: ./.github/workflows/workflow-test.yml
+    permissions:
+      contents: read
+
+  done:
+    name: Done
+    needs:
+      - validate
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - run: pnpm install --no-frozen-lockfile
-      - run: pnpm typecheck
-
-  build-example:
-    name: Build Example App
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - run: pnpm install --no-frozen-lockfile
-      - run: cd example && pnpm install --no-frozen-lockfile && pnpm build
-
-  build-rspress:
-    name: Build Rspress Example
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - run: pnpm install --no-frozen-lockfile
-      - run: cd example-rspress && pnpm install --no-frozen-lockfile && pnpm build
+      - name: Fail If Any Job Did Not Succeed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'skipped') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
