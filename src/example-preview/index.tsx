@@ -2,11 +2,13 @@ import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import useSWRMutation from 'swr/mutation';
-import { ExampleContent } from './components';
-import { isAssetFileType } from './utils/example-data';
-import type { SchemaOptionsData } from './hooks/use-switch-schema';
-import { useGoConfig } from '../config';
 import type { PreviewTab } from '../config';
+import { useGoConfig } from '../config';
+import { ExampleContent } from './components';
+import { UltraLynxView } from './components/ultra-lynx-view';
+import type { SchemaOptionsData } from './hooks/use-switch-schema';
+import { isAssetFileType } from './utils/example-data';
+import type { WebPreviewMode } from './utils/resolve-web-preview';
 
 const DefaultErrorWrap = ({
   example,
@@ -38,9 +40,11 @@ const DefaultErrorWrap = ({
   );
 };
 
+export type ExamplePreviewMode = 'linked' | 'preview' | 'source' | 'ultra';
+
 export interface ExamplePreviewProps {
   example: string;
-  defaultFile: string;
+  defaultFile?: string;
   img?: string;
   defaultEntryFile?: string;
   defaultEntryName?: string;
@@ -50,6 +54,14 @@ export interface ExamplePreviewProps {
   rightFooter?: React.ReactNode;
   schemaOptions?: SchemaOptionsData;
   langAlias?: Record<string, string>;
+  mode?: ExamplePreviewMode;
+  webPreviewMode?: WebPreviewMode;
+  webPreview?: boolean;
+  designWidth?: number;
+  designHeight?: number;
+  fitThresholdScale?: number;
+  fitMinScale?: number;
+  fit?: 'contain' | 'cover' | 'auto';
   /**
    * Override the default preview tab for this instance.
    * Takes precedence over the site-level `GoConfig.defaultTab`.
@@ -59,6 +71,25 @@ export interface ExamplePreviewProps {
    * - `'qrcode'`  — QR code for Lynx Explorer
    */
   defaultTab?: PreviewTab;
+  /**
+   * Deep link URL template for opening the app locally.
+   *
+   * Supports templating with the currently selected entry URL:
+   * - `{{{url}}}` -- raw entry URL
+   * - `{{{urlEncoded}}}` -- `encodeURIComponent(entryUrl)`
+   *
+   * Example: `'lynxtron-go://open?url={{{urlEncoded}}}'`
+   */
+  deepLinkUrl?: string;
+  /**
+   * Native framework required by the bundle at runtime, e.g. `"lynxtron"` or
+   * `"sparkling"`. Unset ⇒ no native framework dependency, universally
+   * compatible (opens in Lynx Explorer by default). Prop overrides the value
+   * declared in `example-metadata.json`.
+   */
+  nativeFramework?: string;
+  /** @internal Force mobile mode for testing. */
+  _forceMobile?: boolean;
 }
 
 export interface ExampleMetadata {
@@ -71,6 +102,11 @@ export interface ExampleMetadata {
   }>;
   previewImage?: string;
   exampleGitBaseUrl?: string;
+  /**
+   * Native framework this example depends on at runtime (e.g. `"lynxtron"`).
+   * Absent means no native framework dep — universally compatible.
+   */
+  nativeFramework?: string;
 }
 
 export const ExamplePreview = (props: ExamplePreviewProps) => {
@@ -100,10 +136,23 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
     schemaOptions,
     langAlias,
     defaultTab: propsDefaultTab,
+    mode = 'linked',
+    webPreviewMode = 'responsive',
+    webPreview = true,
+    designWidth = 375,
+    designHeight = 812,
+    fitThresholdScale = 1.0,
+    fitMinScale = 0.5,
+    fit = 'cover',
+    deepLinkUrl,
+    nativeFramework: nativeFrameworkProp,
+    _forceMobile,
   } = props;
 
   // Instance prop > config provider > undefined (let ExampleContent decide)
   const defaultTab = propsDefaultTab ?? configDefaultTab;
+  const resolvedDefaultTab =
+    webPreview === false && defaultTab === 'web' ? undefined : defaultTab;
 
   const [currentName, setCurrentName] = useState(defaultFile);
   const [currentFile, setCurrentFile] = useState('');
@@ -148,6 +197,7 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
     setIsAssetFile(isAssetFileType(v));
   };
   useEffect(() => {
+    if (mode === 'preview' || mode === 'ultra') return;
     if (isAssetFile) {
       setCurrentFile(`${EXAMPLE_BASE_URL}/${example}/${currentName}`);
     } else {
@@ -160,7 +210,7 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
         });
       }
     }
-  }, [currentName, isAssetFile]);
+  }, [currentName, isAssetFile, mode]);
 
   const currentEntryFileUrl = useMemo(() => {
     const file = exampleData?.templateFiles?.find(
@@ -176,6 +226,7 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
     }
     return '';
   }, [exampleData, currentEntry, schema]);
+
   useEffect(() => {
     if (exampleData?.templateFiles && exampleData?.templateFiles.length > 0) {
       let tmpEntry;
@@ -202,9 +253,11 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
         tmpEntry = exampleData?.templateFiles[0];
       }
       if (tmpEntry) {
-        if (tmpEntry.webFile) {
+        if (tmpEntry.webFile && webPreview !== false) {
           const fullWebFile = `${window.location.origin}${EXAMPLE_BASE_URL}/${example}/${tmpEntry.webFile}`;
           setDefaultWebPreviewFile(fullWebFile);
+        } else {
+          setDefaultWebPreviewFile('');
         }
         setCurrentEntry(tmpEntry.name);
       } else {
@@ -214,11 +267,42 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
       }
       setInitState(true);
     }
-  }, [exampleData, defaultEntryFile, defaultEntryName]);
+  }, [exampleData, defaultEntryFile, defaultEntryName, webPreview]);
 
   if (error) {
     const ErrorComp = ErrorComponent || DefaultErrorWrap;
     return <ErrorComp example={example} exampleBaseUrl={EXAMPLE_BASE_URL} />;
+  }
+
+  // Ultra: Go is only a chromeless full-viewport <lynx-view>.
+  if (mode === 'ultra') {
+    if (initState && !defaultWebPreviewFile) {
+      const ErrorComp = ErrorComponent || DefaultErrorWrap;
+      return <ErrorComp example={example} exampleBaseUrl={EXAMPLE_BASE_URL} />;
+    }
+    if (!defaultWebPreviewFile) {
+      return (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: '#000',
+            zIndex: 99999,
+          }}
+        />
+      );
+    }
+    return (
+      <UltraLynxView
+        src={defaultWebPreviewFile}
+        webPreviewMode={webPreviewMode}
+        designWidth={designWidth}
+        designHeight={designHeight}
+        fitThresholdScale={fitThresholdScale}
+        fitMinScale={fitMinScale}
+        fit={fit}
+      />
+    );
   }
 
   return (
@@ -248,7 +332,17 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
       rightFooter={rightFooter}
       schemaOptions={schema ? undefined : schemaOptions}
       exampleGitBaseUrl={exampleData?.exampleGitBaseUrl}
-      defaultTab={defaultTab}
+      defaultTab={resolvedDefaultTab}
+      mode={mode}
+      webPreviewMode={webPreviewMode}
+      designWidth={designWidth}
+      designHeight={designHeight}
+      fitThresholdScale={fitThresholdScale}
+      fitMinScale={fitMinScale}
+      fit={fit}
+      deepLinkUrl={deepLinkUrl}
+      nativeFramework={nativeFrameworkProp ?? exampleData?.nativeFramework}
+      _forceMobile={_forceMobile}
     />
   );
 };
