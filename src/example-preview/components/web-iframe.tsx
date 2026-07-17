@@ -63,9 +63,10 @@ type UseWebIframeControllerResult = {
   ready: boolean;
   /**
    * True once the Lynx page has actually painted into the shadow root
-   * (`[lynx-tag="page"]`), after a double-rAF so the overlay holds through
-   * bundle download and first paint. Falls back to true after a timeout if
-   * the page signal never arrives (there is no public "rendered" event).
+   * (`[part="page"]` / `[lynx-tag="page"]`), after a double-rAF so the overlay
+   * holds through bundle download and first paint. Falls back to true after a
+   * timeout if the page signal never arrives (there is no public "rendered"
+   * event).
    */
   rendered: boolean;
   /**
@@ -255,12 +256,12 @@ function useWebIframeController({
       });
     };
 
-    // web-core may create the shadow root asynchronously and append an empty
-    // <style> (or other chrome) before the template finishes downloading.
-    // Only `[lynx-tag="page"]` means the Lynx bundle has actually rendered —
-    // do not treat any shadow child (e.g. childElementCount > 0) as ready.
+    // web-core may create the shadow root asynchronously and append chrome
+    // (iframe / <style> / <link>) before the template finishes downloading.
+    // The rendered page root is `[part="page"]` (web-core >=0.20) or
+    // `[lynx-tag="page"]` (older). Do not treat any shadow child as ready.
     const isContentReady = (shadow: ShadowRoot) =>
-      !!shadow.querySelector('[lynx-tag="page"]');
+      !!shadow.querySelector('[part="page"], [lynx-tag="page"]');
 
     const setupShadow = (shadow: ShadowRoot) => {
       mo = new MutationObserver(() => {
