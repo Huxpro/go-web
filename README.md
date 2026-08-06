@@ -90,6 +90,56 @@ const html = generateSSGHTML({
 
 The `./ssg` export uses Node.js `fs`/`path` and must not be bundled into browser code.
 
+### Framework-neutral core (`/lynx-view`)
+
+The iframe embed above runs `<Go>` inside an iframe. If you want the *preview
+itself* — no chrome, no iframe, no React — mount it directly:
+
+```ts
+import { mountLynxView } from '@lynx-js/go-web/lynx-view';
+
+const view = mountLynxView(document.querySelector('#preview')!, {
+  url: '/lynx-examples/swiper/dist/main.web.bundle',
+  loadRuntime: () => import('@lynx-js/web-core/client').then(() => {}),
+  onStateChange: ({ stage, rendered, error }) => {
+    // 'runtime' -> 'downloading' -> 'rendering' -> 'rendered'
+  },
+});
+
+view.reload();   // rebuild from the bundle already in memory
+view.dispose();
+```
+
+`container` is measured, so give it a definite size; everything below it is
+created and owned by the view. Options mirror `<Go>`'s: `webPreviewMode`,
+`fit`, `designWidth`/`designHeight`, `fitThresholdScale`, `fitMinScale`.
+
+`loadRuntime` is injected rather than chosen here, so the host decides how
+`@lynx-js/web-core` arrives — bundled, or the prebuilt client from a URL.
+
+#### Demonstrating a gesture-driven example
+
+A carousel that binds `touchstart`/`touchmove`/`touchend` shows nothing in an
+embedded preview: a desktop reader's mouse never reaches it, so it looks like a
+still image. `autoGesture` performs the gesture and draws the contact point the
+way a device simulator does.
+
+```ts
+mountLynxView(container, {
+  url,
+  loadRuntime,
+  autoGesture: {
+    steps: [{ path: [{ x: 0.98, y: 0.3 }, { x: -0.02, y: 0.3 }], durationMs: 520, restMs: 2600 }],
+  },
+});
+```
+
+Coordinates are fractions of the host box, so a step survives a resize. The
+events are synthesized, so `isTrusted` is `false` — which is also how the real
+thing is told apart: the first trusted pointer or touch stops the playback and
+hands the example back to the reader. Tell readers the gesture is simulated;
+everything it triggers is real.
+
 ### Iframe Embed (no React required)
 
 For non-React sites (Hugo, Jekyll, plain HTML, etc.), use the iframe embed API. The host page only loads a tiny JS file — React runs inside the iframe.

@@ -26,7 +26,8 @@
     ".": "./src/index.ts",
     "./adapters/rspress": "./src/adapters/rspress.tsx",
     "./ssg": "./src/ssg.tsx",
-    "./embed": "./src/embed.ts"
+    "./embed": "./src/embed.ts",
+    "./lynx-view": "./src/lynx-view/index.ts"
   },
   "main": "src/index.ts",
   "types": "src/index.ts",
