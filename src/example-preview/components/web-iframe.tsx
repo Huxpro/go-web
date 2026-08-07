@@ -811,13 +811,35 @@ export const WebIframe = ({
   // events, and a mouse never produces them. Once the page has painted we can
   // drive it ourselves, from the same synthetic-touch helper the standalone
   // <lynx-view> mount uses. `rendered` drops on reload, so a refresh replays.
+  //
+  // Playback waits for the preview to be on screen. A tutorial page carries one
+  // preview per step, and the driver aims its contacts with
+  // `document.elementFromPoint` — viewport-relative, and empty for anything
+  // below the fold. Without this every preview on the page would start a
+  // playback that silently hits nothing, and a reader scrolling down would
+  // arrive to find it already finished and motionless.
   const autoGestureRef = useRef(autoGesture);
   autoGestureRef.current = autoGesture;
   useEffect(() => {
     const options = autoGestureRef.current;
     if (!options || !rendered || !show || !lynxView) return;
-    let playback: AutoGestureHandle | null = playAutoGesture(lynxView, options);
+    let playback: AutoGestureHandle | null = null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            playback ??= playAutoGesture(lynxView, options);
+          } else {
+            playback?.stop();
+            playback = null;
+          }
+        }
+      },
+      { threshold: 0.5 },
+    );
+    observer.observe(lynxView);
     return () => {
+      observer.disconnect();
       playback?.stop();
       playback = null;
     };
