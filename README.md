@@ -90,6 +90,60 @@ const html = generateSSGHTML({
 
 The `./ssg` export uses Node.js `fs`/`path` and must not be bundled into browser code.
 
+### Demonstrating a gesture-driven example
+
+A carousel that binds `touchstart`/`touchmove`/`touchend` shows nothing in an
+embedded preview: a desktop reader's mouse never reaches it, so it looks like a
+still image. `autoGesture` performs the gesture and draws the contact point the
+way a device simulator does.
+
+```tsx
+<Go
+  example="swiper"
+  autoGesture={{
+    loop: true,
+    startDelayMs: 1400,
+    steps: [
+      {
+        path: [
+          { x: 0.98, y: 0.3 },
+          { x: -0.02, y: 0.3 },
+        ],
+        iterations: 7,
+        durationMs: 520,
+        restMs: 2600,
+      },
+    ],
+  }}
+/>
+```
+
+Coordinates are fractions of the preview's box, so a step survives a resize and
+does not need to know the design width. A step may carry `iterations` to repeat
+itself before the sequence advances, so a carousel can be walked to its end and
+back without the driver knowing anything about carousels.
+
+The events are synthesized, so `isTrusted` is `false` — which is also how the
+real thing is told apart: the first trusted pointer or touch stops the playback
+and hands the example back to the reader. Playback only runs while the preview
+is on screen. Tell readers the gesture is simulated; everything it triggers is
+real.
+
+Safari is handled. It refuses `new Touch()` while still shipping the legacy
+`document.createTouch`, so the driver probes how this browser will let it build
+a `TouchEvent` and caches the answer.
+
+For a site that renders `<lynx-view>` itself rather than through `<Go>`, the
+driver is also available on its own — it takes a host element and knows nothing
+about Lynx, React, or any framework:
+
+```ts
+import { playAutoGesture } from '@lynx-js/go-web/auto-gesture';
+
+const playback = playAutoGesture(hostElement, { steps });
+playback.stop();
+```
+
 ### Iframe Embed (no React required)
 
 For non-React sites (Hugo, Jekyll, plain HTML, etc.), use the iframe embed API. The host page only loads a tiny JS file — React runs inside the iframe.
