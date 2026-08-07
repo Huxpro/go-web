@@ -32,6 +32,14 @@ export type GesturePoint = {
 export type GestureStep = {
   /** Contact path. One point taps; two or more drag through each in turn. */
   path: readonly GesturePoint[];
+  /**
+   * Perform this step this many times before advancing. Defaults to one.
+   *
+   * This is what lets a sequence walk a carousel to its end and back without
+   * the driver knowing anything about carousels: seven swipes left, then seven
+   * right, expressed as two steps.
+   */
+  iterations?: number;
   /** How long the contact lasts. */
   durationMs?: number;
   /** How long to wait after lifting, before the next step. */
@@ -95,12 +103,35 @@ export function playAutoGesture(
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let identifier = 1;
+  let activeContact:
+    | {
+        target: Element;
+        identifier: number;
+        point: { clientX: number; clientY: number };
+      }
+    | undefined;
   const pointer = showPointer ? createPointer(host) : undefined;
+
+  /**
+   * Lift the finger, if one is down.
+   *
+   * Stopping mid-drag — which is exactly what a reader touching the preview
+   * does — would otherwise leave the example believing a contact is still
+   * active, and it would never run its release handler.
+   */
+  const endActiveContact = (): void => {
+    if (!activeContact) return;
+    const { target, identifier, point } = activeContact;
+    activeContact = undefined;
+    dispatchContact(target, 'touchend', identifier, point);
+    hidePointer(pointer);
+  };
 
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
     if (timer) clearTimeout(timer);
+    endActiveContact();
     pointer?.remove();
     for (const type of USER_INPUT_EVENTS) {
       host.removeEventListener(type, onUserInput, true);
@@ -127,10 +158,13 @@ export function playAutoGesture(
     await wait(startDelayMs);
     do {
       for (const step of steps) {
-        if (stopped) return;
-        await playStep(step);
-        if (stopped) return;
-        await wait(step.restMs ?? DEFAULT_REST_MS);
+        const iterations = Math.max(1, Math.trunc(step.iterations ?? 1));
+        for (let iteration = 0; iteration < iterations; iteration++) {
+          if (stopped) return;
+          await playStep(step);
+          if (stopped) return;
+          await wait(step.restMs ?? DEFAULT_REST_MS);
+        }
       }
     } while (loop && !stopped);
     pointer?.remove();
@@ -146,14 +180,11 @@ export function playAutoGesture(
     if (points.length === 0) return;
 
     const id = identifier++;
-    const target = deepestElementAt(
-      host,
-      points[0].clientX,
-      points[0].clientY,
-    );
+    const target = deepestElementAt(host, points[0].clientX, points[0].clientY);
     if (!target) return;
 
     showPointerAt(pointer, host, points[0]);
+    activeContact = { target, identifier: id, point: points[0] };
     dispatchContact(target, 'touchstart', id, points[0]);
 
     const duration = step.durationMs ?? DEFAULT_DURATION_MS;
@@ -164,13 +195,14 @@ export function playAutoGesture(
       const progress = easeInOutQuad(frame / frames);
       const point = interpolate(points, progress);
       showPointerAt(pointer, host, point);
+      activeContact.point = point;
       dispatchContact(target, 'touchmove', id, point);
       await wait(FRAME_MS);
     }
 
     if (stopped) return;
-    dispatchContact(target, 'touchend', id, points[points.length - 1]);
-    hidePointer(pointer);
+    activeContact.point = points[points.length - 1];
+    endActiveContact();
   }
 
   void run();

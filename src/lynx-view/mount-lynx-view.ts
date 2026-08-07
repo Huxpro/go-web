@@ -51,7 +51,11 @@ const RPX_BASELINE = 750;
 /** How long a resize must be settled before the page is rebuilt for it. */
 const VIEWPORT_RESYNC_MS = 400;
 
-export type LynxViewStage = 'runtime' | 'downloading' | 'rendering' | 'rendered';
+export type LynxViewStage =
+  | 'runtime'
+  | 'downloading'
+  | 'rendering'
+  | 'rendered';
 
 export type LynxViewState = {
   /** The Lynx runtime module has loaded. Says nothing about the bundle. */
@@ -110,7 +114,11 @@ export type LynxViewHandle = {
 };
 
 type LynxViewElement = HTMLElement & {
-  browserConfig: { pixelWidth: number; pixelHeight: number; pixelRatio: number };
+  browserConfig: {
+    pixelWidth: number;
+    pixelHeight: number;
+    pixelRatio: number;
+  };
 };
 
 const DEFAULTS = {
@@ -233,8 +241,7 @@ export function mountLynxView(
       ax: 0.5,
       ay: 0.5,
     });
-    stage.style.cssText =
-      'position:relative;width:0;height:0;overflow:visible';
+    stage.style.cssText = 'position:relative;width:0;height:0;overflow:visible';
     frame.style.cssText =
       `position:absolute;transform-origin:top left;width:${designWidth}px;height:${designHeight}px;` +
       `transform:translate(${offsetX}px, ${offsetY}px) scale(${scale});` +
