@@ -15,6 +15,11 @@ import type {
   WebPreviewMode,
   ResolvedWebPreviewMode,
 } from '../utils/resolve-web-preview';
+import {
+  playAutoGesture,
+  type AutoGestureHandle,
+  type AutoGestureOptions,
+} from '../../lynx-view/auto-gesture';
 import { LoadingOverlay } from './loading-overlay';
 import type { WebPreviewLoadStage } from './loading-overlay';
 
@@ -43,6 +48,12 @@ type AutoFitBiases = {
 type WebIframeProps = {
   show: boolean;
   src: string;
+  /**
+   * Demonstrate the example with simulated touches once it has painted. A
+   * gesture-driven example shows nothing here otherwise: it binds touch events,
+   * so a desktop reader's mouse never reaches it.
+   */
+  autoGesture?: AutoGestureOptions;
   webPreviewMode?: WebPreviewMode;
   designWidth?: number;
   designHeight?: number;
@@ -652,6 +663,7 @@ function computeAutoFitBiases(args: {
 export const WebIframe = ({
   show,
   src,
+  autoGesture,
   webPreviewMode = 'responsive',
   designWidth = 375,
   designHeight = 812,
@@ -794,6 +806,22 @@ export const WebIframe = ({
   useEffect(() => {
     onLoadStateChangeRef.current?.({ ready, rendered, stage, error });
   }, [ready, rendered, stage, error]);
+
+  // A gesture-driven example is inert for a desktop reader: it binds touch
+  // events, and a mouse never produces them. Once the page has painted we can
+  // drive it ourselves, from the same synthetic-touch helper the standalone
+  // <lynx-view> mount uses. `rendered` drops on reload, so a refresh replays.
+  const autoGestureRef = useRef(autoGesture);
+  autoGestureRef.current = autoGesture;
+  useEffect(() => {
+    const options = autoGestureRef.current;
+    if (!options || !rendered || !show || !lynxView) return;
+    let playback: AutoGestureHandle | null = playAutoGesture(lynxView, options);
+    return () => {
+      playback?.stop();
+      playback = null;
+    };
+  }, [rendered, show, lynxView, reloadKey]);
 
   // `webPreviewMode='responsive'` resolves to `usesFitPath === false`,
   // which skips all fit-only interpolation and auto-fit bias logic.

@@ -12,6 +12,8 @@ Two details in it are worth knowing before reusing it. It dispatches a pointer e
 
 A step carries an optional `iterations`, so a sequence can walk a carousel to its end and back — seven swipes left, then seven right — without the driver knowing anything about carousels. Stopping mid-drag lifts the contact first, so the example runs its release handler instead of being left believing a finger is still down.
 
+`<Go>` takes the same options as an `autoGesture` prop, forwarded to both the panel preview and the frameless fullscreen view, so a docs site does not have to drop down to the framework-neutral entry point to demonstrate a carousel.
+
 Three behaviours in the new module differ from `WebIframe`, each a bug found while embedding real tutorial examples:
 
 - `pageRoot()` skips the disposed root. A reload does not replace the old page root — web-core marks it `l-disposed` and builds the new page beside it — so taking the first selector match never observes the rebuilt page and a refresh can only ever end on the fallback timeout.

@@ -92,8 +92,8 @@ The `./ssg` export uses Node.js `fs`/`path` and must not be bundled into browser
 
 ### Framework-neutral core (`/lynx-view`)
 
-The iframe embed above runs `<Go>` inside an iframe. If you want the *preview
-itself* — no chrome, no iframe, no React — mount it directly:
+The iframe embed above runs `<Go>` inside an iframe. If you want the _preview
+itself_ — no chrome, no iframe, no React — mount it directly:
 
 ```ts
 import { mountLynxView } from '@lynx-js/go-web/lynx-view';
@@ -106,7 +106,7 @@ const view = mountLynxView(document.querySelector('#preview')!, {
   },
 });
 
-view.reload();   // rebuild from the bundle already in memory
+view.reload(); // rebuild from the bundle already in memory
 view.dispose();
 ```
 
@@ -129,7 +129,16 @@ mountLynxView(container, {
   url,
   loadRuntime,
   autoGesture: {
-    steps: [{ path: [{ x: 0.98, y: 0.3 }, { x: -0.02, y: 0.3 }], durationMs: 520, restMs: 2600 }],
+    steps: [
+      {
+        path: [
+          { x: 0.98, y: 0.3 },
+          { x: -0.02, y: 0.3 },
+        ],
+        durationMs: 520,
+        restMs: 2600,
+      },
+    ],
   },
 });
 ```
@@ -139,6 +148,36 @@ events are synthesized, so `isTrusted` is `false` — which is also how the real
 thing is told apart: the first trusted pointer or touch stops the playback and
 hands the example back to the reader. Tell readers the gesture is simulated;
 everything it triggers is real.
+
+A step may carry `iterations` to repeat itself before the sequence advances, so
+a carousel can be walked to its end and back without the driver knowing anything
+about carousels:
+
+```ts
+steps: [
+  {
+    path: [
+      { x: 0.9, y: 0.5 },
+      { x: 0.1, y: 0.5 },
+    ],
+    iterations: 7,
+  },
+  {
+    path: [
+      { x: 0.1, y: 0.5 },
+      { x: 0.9, y: 0.5 },
+    ],
+    iterations: 7,
+  },
+];
+```
+
+`<Go>` accepts the same options as an `autoGesture` prop, so a docs site does
+not have to drop down to the framework-neutral entry point to use this:
+
+```tsx
+<Go example="swiper" autoGesture={{ steps }} />
+```
 
 ### Iframe Embed (no React required)
 

@@ -1,4 +1,5 @@
 import React, { Suspense, useEffect } from 'react';
+import type { AutoGestureOptions } from '../../lynx-view/auto-gesture';
 import type { WebPreviewMode } from '../utils/resolve-web-preview';
 import { DefaultNoSSR, useGoConfig } from '../../config';
 import s from './index.module.scss';
@@ -10,6 +11,8 @@ const WebIframe = React.lazy(() =>
 export type UltraLynxViewProps = {
   /** Absolute URL to the `.web.bundle` */
   src: string;
+  /** Simulated touches to replay once the example has painted. */
+  autoGesture?: AutoGestureOptions;
   webPreviewMode?: WebPreviewMode;
   designWidth?: number;
   designHeight?: number;
@@ -27,6 +30,7 @@ export type UltraLynxViewProps = {
  */
 export function UltraLynxView({
   src,
+  autoGesture,
   webPreviewMode = 'responsive',
   designWidth,
   designHeight,
@@ -58,6 +62,7 @@ export function UltraLynxView({
         <Suspense fallback={null}>
           <WebIframe
             show
+            autoGesture={autoGesture}
             src={src}
             webPreviewMode={webPreviewMode}
             designWidth={designWidth}
