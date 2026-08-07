@@ -149,6 +149,10 @@ thing is told apart: the first trusted pointer or touch stops the playback and
 hands the example back to the reader. Tell readers the gesture is simulated;
 everything it triggers is real.
 
+Safari is handled: it refuses `new Touch()` while still shipping the legacy
+`document.createTouch`, so the driver probes how this browser will let it build
+a `TouchEvent` and caches the answer.
+
 A step may carry `iterations` to repeat itself before the sequence advances, so
 a carousel can be walked to its end and back without the driver knowing anything
 about carousels:
