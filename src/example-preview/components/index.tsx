@@ -62,6 +62,7 @@ enum PreviewType {
 }
 
 import type { ExamplePreviewMode } from '../index';
+import type { AutoGestureOptions } from '../../auto-gesture';
 
 interface ExampleContentProps {
   fileNames: string[];
@@ -87,6 +88,7 @@ interface ExampleContentProps {
   defaultTab?: PreviewTab;
   webLoadingScreen?: WebLoadingScreen;
   mode?: ExamplePreviewMode;
+  autoGesture?: AutoGestureOptions;
   webPreviewMode?: WebPreviewMode;
   designWidth?: number;
   designHeight?: number;
@@ -124,6 +126,7 @@ export function ExampleContent({
   defaultTab,
   webLoadingScreen,
   mode = 'linked',
+  autoGesture,
   webPreviewMode = 'responsive',
   designWidth = 375,
   designHeight = 812,
@@ -778,6 +781,7 @@ export function ExampleContent({
                   <WebIframe
                     show={webPanelActive}
                     src={defaultWebPreviewFile || ''}
+                    autoGesture={autoGesture}
                     webPreviewMode={webPreviewMode}
                     designWidth={designWidth}
                     designHeight={designHeight}

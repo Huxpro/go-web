@@ -27,3 +27,11 @@ export {
   UltraLynxView,
   type UltraLynxViewProps,
 } from './example-preview/components/ultra-lynx-view';
+
+export { playAutoGesture } from './auto-gesture';
+export type {
+  AutoGestureHandle,
+  AutoGestureOptions,
+  GesturePoint,
+  GestureStep,
+} from './auto-gesture';

@@ -8,6 +8,7 @@ import { ExampleContent } from './components';
 import { UltraLynxView } from './components/ultra-lynx-view';
 import type { SchemaOptionsData } from './hooks/use-switch-schema';
 import { isAssetFileType } from './utils/example-data';
+import type { AutoGestureOptions } from '../auto-gesture';
 import type { WebPreviewMode } from './utils/resolve-web-preview';
 
 const DefaultErrorWrap = ({
@@ -55,6 +56,13 @@ export interface ExamplePreviewProps {
   schemaOptions?: SchemaOptionsData;
   langAlias?: Record<string, string>;
   mode?: ExamplePreviewMode;
+  /**
+   * Demonstrate a gesture-driven example with simulated touches once the web
+   * preview has painted. A carousel that binds `touchstart`/`touchmove`/
+   * `touchend` shows nothing here otherwise, because a desktop reader's mouse
+   * never reaches it. See `@lynx-js/go-web/auto-gesture`.
+   */
+  autoGesture?: AutoGestureOptions;
   webPreviewMode?: WebPreviewMode;
   webPreview?: boolean;
   designWidth?: number;
@@ -153,6 +161,7 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
     defaultTab: propsDefaultTab,
     webLoadingScreen: propsWebLoadingScreen,
     mode = 'linked',
+    autoGesture,
     webPreviewMode = 'responsive',
     webPreview = true,
     designWidth = 375,
@@ -315,6 +324,7 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
     return (
       <UltraLynxView
         src={defaultWebPreviewFile}
+        autoGesture={autoGesture}
         webPreviewMode={webPreviewMode}
         designWidth={designWidth}
         designHeight={designHeight}
@@ -355,6 +365,7 @@ export const ExamplePreview = (props: ExamplePreviewProps) => {
       defaultTab={resolvedDefaultTab}
       webLoadingScreen={webLoadingScreen}
       mode={mode}
+      autoGesture={autoGesture}
       webPreviewMode={webPreviewMode}
       designWidth={designWidth}
       designHeight={designHeight}
